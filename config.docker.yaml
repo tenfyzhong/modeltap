@@ -1,0 +1,56 @@
+proxy:
+  listen: 0.0.0.0:8080
+
+logging:
+  level: info
+
+tls:
+  ca_cert_file: /run/modeltap/ca-cert.pem
+  ca_key_file: /run/modeltap/ca-key.pem
+
+telemetry:
+  otlp:
+    endpoint: http://host.docker.internal:4318
+    service_name: modeltap
+
+egress:
+  default: gost-socks5
+  proxies:
+    - id: gost-socks5
+      url: socks5://host.docker.internal:1081
+
+sites:
+  - id: openai
+    provider: openai
+    hosts: [api.openai.com]
+    mitm: true
+  - id: anthropic
+    provider: anthropic
+    hosts: [api.anthropic.com]
+    mitm: true
+  - id: gemini
+    provider: gemini
+    hosts: [googleapis.com]
+    mitm: true
+
+pricing:
+  timezone: Asia/Shanghai
+  peak_windows:
+    - start: "09:00"
+      end: "12:00"
+    - start: "14:00"
+      end: "18:00"
+  rules:
+    - site: openai
+      model: "*"
+      currency: USD
+      peak: {input: 2.5, output: 10, cache_read: 1.25}
+      off_peak: {input: 1.25, output: 5, cache_read: 0.625}
+    - site: anthropic
+      model: "*"
+      currency: USD
+      rates: {input: 3, output: 15, cache_read: 0.3, cache_write: 3.75}
+    - site: gemini
+      model: "*"
+      currency: USD
+      rates: {input: 1.25, output: 10}

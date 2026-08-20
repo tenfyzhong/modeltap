@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ModelTap Documentation</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, system-ui, sans-serif; }
+    body { margin: 0; line-height: 1.6; }
+    main { max-width: 960px; margin: auto; padding: 2rem 1.25rem 5rem; }
+    h1, h2, h3 { line-height: 1.2; margin-top: 2.25rem; }
+    h2 { border-bottom: 1px solid #8886; padding-bottom: .3rem; }
+    nav { display: flex; flex-wrap: wrap; gap: 1rem; }
+    a { color: #4f8cff; } pre { background: #8882; padding: 1rem; overflow-x: auto; border-radius: .5rem; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .note { border-left: 4px solid #4f8cff; background: #4f8cff18; padding: .75rem 1rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>ModelTap</h1>
+  <p>ModelTap is a Rust explicit proxy for selected AI API traffic. It supports TLS MITM, direct or cascading GOST/HTTP/HTTPS/SOCKS5 egress, OpenAI/Anthropic/Gemini/DeepSeek usage parsing, configurable peak pricing, and OTLP metrics through Grafana Alloy.</p>
+  <p>HTTP, SSE, and long-lived WebSocket traffic are forwarded as a stream. For Codex WebSockets, ModelTap observes OpenAI Responses usage events and side-decompresses negotiated <code>permessage-deflate</code> frames without changing the original handshake or forwarded frames.</p>
+  <nav><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#config">Configuration</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
+
+  <h2 id="start">Quick start</h2>
+  <pre><code>make build
+mkdir -p certs
+./target/debug/modeltap ca-init \
+  certs/modeltap-ca-cert.pem \
+  certs/modeltap-ca-key.pem
+./target/debug/modeltap run config.test.yaml</code></pre>
+  <p>Set your browser, CLI, or SDK HTTP proxy to <code>http://127.0.0.1:8080</code>. Only hosts with <code>mitm: true</code> are decrypted; other CONNECT tunnels remain transparent.</p>
+  <p>Each <code>hosts</code> entry is a domain root and includes all subdomains at a DNS label boundary. For example, <code>googleapis.com</code> includes <code>generativelanguage.googleapis.com</code>, but does not match <code>notgoogleapis.com</code>. Overlapping domain trees across sites are rejected.</p>
+  <p>The inbound proxy does not require client authentication, including on a non-loopback listener such as <code>0.0.0.0:8080</code>. Protect non-loopback listeners with a host firewall, private network, or another trusted access-control layer to avoid running an open proxy.</p>
+
+  <h2 id="certificate">Install the local CA</h2>
+  <p>On macOS, import <code>certs/modeltap-ca-cert.pem</code> into the <strong>System</strong> keychain with Keychain Access and set it to <strong>Always Trust</strong>. Never import, copy, or share <code>modeltap-ca-key.pem</code>.</p>
+  <pre><code>curl --proxy http://127.0.0.1:8080 \
+  --cacert certs/modeltap-ca-cert.pem \
+  https://api.openai.com/v1/models</code></pre>
+  <p>A 401 response confirms that interception and forwarding work; it only means that no API key was supplied.</p>
+
+  <h2 id="config">Configuration</h2>
+  <p>This example is synchronized with <code>config.test.yaml</code>. OpenAI, Anthropic, and Gemini use Privoxy at <code>127.0.0.1:8118</code>; DeepSeek explicitly uses the direct egress and never uses Privoxy.</p>
+  <pre><code>proxy:
+  listen: 127.0.0.1:8080
+
+logging:
+  level: info
+
+tls:
+  ca_cert_file: ./certs/modeltap-ca-cert.pem
+  ca_key_file: ./certs/modeltap-ca-key.pem
+
+telemetry:
+  otlp:
+    endpoint: http://127.0.0.1:4318
+    service_name: modeltap-test
+
+egress:
+  default: privoxy
+  proxies:
+    - id: privoxy
+      url: http://127.0.0.1:8118
+
+sites:
+  - id: openai
+    provider: openai
+    hosts:
+      - chatgpt.com
+    mitm: true
+  - id: anthropic
+    provider: anthropic
+    hosts:
+      - anthropic.com
+    mitm: true
+  - id: gemini
+    provider: gemini
+    hosts:
+      - googleapis.com
+    mitm: true
+  - id: deepseek
+    provider: deepseek
+    hosts:
+      - api.deepseek.com
+    mitm: true
+    egress: direct
+
+pricing:
+  timezone: Asia/Shanghai
+  # Official first-party API list prices checked on 2026-08-20.
+  # All rates are USD per 1M tokens. DeepSeek CNY prices were converted with
+  # the 2026-08-19 ECB rates (1 CNY = 0.148407227899 USD).
+  peak_windows:
+    - start: "09:00"
+      end: "12:00"
+    - start: "14:00"
+      end: "18:00"
+  rules:
+    - site: openai
+      model: "gpt-5.6-sol*"
+      currency: USD
+      rates:
+        input: 5
+        output: 30
+        cache_read: 0.5
+    - site: openai
+      model: "gpt-5.6-terra*"
+      currency: USD
+      rates:
+        input: 2
+        output: 12
+        cache_read: 0.2
+    - site: openai
+      model: "gpt-5.6-luna*"
+      currency: USD
+      rates:
+        input: 0.2
+        output: 1.2
+        cache_read: 0.02
+    - site: anthropic
+      model: "claude-opus-4-8*"
+      currency: USD
+      rates:
+        input: 5
+        output: 25
+        cache_read: 0.5
+        cache_write: 6.25
+    - site: anthropic
+      model: "claude-sonnet-4-6*"
+      currency: USD
+      rates:
+        input: 3
+        output: 15
+        cache_read: 0.3
+        cache_write: 3.75
+    - site: anthropic
+      model: "claude-haiku-4-5*"
+      currency: USD
+      rates:
+        input: 1
+        output: 5
+        cache_read: 0.1
+        cache_write: 1.25
+    - site: gemini
+      model: "gemini-3.7-flash*"
+      currency: USD
+      rates:
+        input: 0.75
+        output: 3.75
+        cache_read: 0.075
+    - site: deepseek
+      model: "deepseek-v4-flash*"
+      currency: USD
+      peak:
+        input: 0.445221684
+        output: 1.335665051
+        cache_read: 0.014840723
+      off_peak:
+        input: 0.222610842
+        output: 0.667832526
+        cache_read: 0.007420361
+    - site: deepseek
+      model: "deepseek-v4-pro*"
+      currency: USD
+      peak:
+        input: 1.335665051
+        output: 4.006995153
+        cache_read: 0.044522168
+      off_peak:
+        input: 0.667832526
+        output: 2.003497577
+        cache_read: 0.022261084</code></pre>
+  <p>Rates are per million tokens. Peak windows use the configured IANA timezone, may cross midnight, and must not overlap. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
+  <pre><code>rates:
+  input: 0.02
+  output: 0</code></pre>
+
+  <h2 id="logging">Logging</h2>
+  <p>Supported levels are <code>error</code>, <code>warn</code>, <code>info</code>, <code>debug</code>, and <code>trace</code>. At <code>info</code>, every parsed usage report logs its site, provider, model, token totals, pricing period, and calculated cost. Set <code>logging.level: debug</code> to also log routing decisions, response status, SSE detection, WebSocket frame bytes, and bounded request and response body previews.</p>
+  <div class="note">Debug previews are limited to 4 KiB per chunk and authentication headers are removed before forwarding, but prompt and model-response content can still appear in logs. Enable debug logging only in a trusted environment.</div>
+
+  <h2 id="alloy">Grafana Alloy</h2>
+  <p>Alloy receives ModelTap metrics over OTLP/HTTP and forwards them to Grafana Cloud with Prometheus remote write. ModelTap posts to <code>&lt;telemetry.otlp.endpoint&gt;/v1/metrics</code>.</p>
+
+  <h3>1. Install Alloy</h3>
+  <p>On macOS, install and start the Homebrew service:</p>
+  <pre><code>brew install grafana/grafana/alloy
+brew services start grafana/grafana/alloy
+brew services info grafana/grafana/alloy</code></pre>
+  <p>On Debian or Ubuntu, install Alloy from Grafana's official APT repository and enable its systemd service:</p>
+  <pre><code>sudo apt-get install -y gpg wget
+sudo mkdir -p /etc/apt/keyrings
+sudo wget -O /etc/apt/keyrings/grafana.asc https://apt.grafana.com/gpg-full.key
+sudo chmod 644 /etc/apt/keyrings/grafana.asc
+echo "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main" \
+  | sudo tee /etc/apt/sources.list.d/grafana.list
+sudo apt-get update
+sudo apt-get install alloy
+sudo systemctl enable --now alloy</code></pre>
+  <p>For RHEL, Fedora, SUSE, Windows, Docker, or Kubernetes, follow Grafana's <a href="https://grafana.com/docs/alloy/latest/set-up/install/">Alloy installation guide</a>.</p>
+
+  <h3>2. Create Grafana Cloud credentials</h3>
+  <ol>
+    <li>Open your stack in the Grafana Cloud Portal, find the <strong>Prometheus</strong> card, and select <strong>Details</strong>.</li>
+    <li>Copy the remote-write URL ending in <code>/api/prom/push</code> and the numeric username/instance ID.</li>
+    <li>Open <strong>Access Policies</strong>, create a stack-scoped policy with only <code>metrics:write</code>, then add a token. Copy the token when it is shown; it is the remote-write password.</li>
+  </ol>
+  <div class="note">Use the numeric Prometheus username, not your Grafana login. Keep the access policy token out of <code>config.alloy</code>, shell history, source control, and screenshots. Give it an expiration date and rotate it before it expires.</div>
+
+  <h3>3. Configure the credentials</h3>
+  <p>On macOS, add the values to <code>$(brew --prefix)/etc/alloy/config.env</code>. Homebrew's Alloy service loads this file:</p>
+  <pre><code>export AGENT_USAGE_PROMETHEUS_URL="https://prometheus-REGION.grafana.net/api/prom/push"
+export AGENT_USAGE_PROMETHEUS_USERNAME="YOUR_NUMERIC_INSTANCE_ID"
+export AGENT_USAGE_PROMETHEUS_PASSWORD="YOUR_ACCESS_POLICY_TOKEN"</code></pre>
+  <p>On Debian or Ubuntu, add the same values without <code>export</code> to <code>/etc/default/alloy</code>, which is the systemd service environment file:</p>
+  <pre><code>AGENT_USAGE_PROMETHEUS_URL="https://prometheus-REGION.grafana.net/api/prom/push"
+AGENT_USAGE_PROMETHEUS_USERNAME="YOUR_NUMERIC_INSTANCE_ID"
+AGENT_USAGE_PROMETHEUS_PASSWORD="YOUR_ACCESS_POLICY_TOKEN"</code></pre>
+
+  <h3>4. Configure the metrics pipeline</h3>
+  <p>Replace the contents of <code>$(brew --prefix)/etc/alloy/config.alloy</code> on macOS or <code>/etc/alloy/config.alloy</code> on Linux with:</p>
+  <pre><code>logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+otelcol.receiver.otlp "agent_usage" {
+  http { endpoint = "127.0.0.1:4318" }
+  output { metrics = [otelcol.exporter.prometheus.agent_usage.input] }
+}
+
+otelcol.exporter.prometheus "agent_usage" {
+  add_metric_suffixes = false
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = sys.env("AGENT_USAGE_PROMETHEUS_URL")
+
+    basic_auth {
+      username = sys.env("AGENT_USAGE_PROMETHEUS_USERNAME")
+      password = sys.env("AGENT_USAGE_PROMETHEUS_PASSWORD")
+    }
+  }
+}</code></pre>
+
+  <h3>5. Validate and start the pipeline</h3>
+  <p>Validate the configuration before restarting Alloy:</p>
+  <pre><code># macOS
+alloy validate "$(brew --prefix)/etc/alloy/config.alloy"
+brew services restart grafana/grafana/alloy
+tail -f "$(brew --prefix)/var/log/alloy.err.log"
+
+# Debian or Ubuntu
+sudo alloy validate /etc/alloy/config.alloy
+sudo systemctl restart alloy
+sudo journalctl -u alloy -f</code></pre>
+  <p>Open <code>http://127.0.0.1:12345</code> and confirm that all Alloy components are healthy. Then start ModelTap, send one request through the proxy, and query <code>ai_proxy_requests</code> in Grafana Cloud <strong>Explore</strong> using the stack's Prometheus data source. Metrics can take a short time to appear because the OTLP SDK batches exports.</p>
+  <p>For a host installation of ModelTap, keep <code>telemetry.otlp.endpoint: http://127.0.0.1:4318</code>. The included Docker configuration already uses <code>http://host.docker.internal:4318</code> so a ModelTap container can reach Alloy running on a Docker Desktop host.</p>
+  <p>Usage metrics are <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>. Labels are limited to site, provider, model, token type, pricing period, and currency.</p>
+
+  <h2>Telemetry overhead and latency</h2>
+  <p>Two additional OTLP histograms quantify proxy latency: <code>ai_proxy_upstream_first_response_seconds</code> measures the time from a proxied request reaching ModelTap until upstream response headers arrive, while <code>ai_proxy_telemetry_record_duration_seconds</code> measures local usage-metric recording time. The latter does not include network export time: the OTLP SDK batches export on its periodic exporter instead of waiting in the user response path.</p>
+  <pre><code>histogram_quantile(0.95,
+  sum by (le) (rate(ai_proxy_telemetry_record_duration_seconds_bucket[5m])))</code></pre>
+  <p>Use this query in Grafana to monitor the p95 local recording overhead. Compare the upstream-first-response metric against a direct, no-proxy baseline to determine end-to-end added latency.</p>
+
+  <h2 id="docker">Docker</h2>
+  <p>Generate the CA files on the host before starting the container:</p>
+  <pre><code>mkdir -p certs
+./target/debug/modeltap ca-init \
+  certs/modeltap-ca-cert.pem \
+  certs/modeltap-ca-key.pem
+docker compose up --build -d
+docker compose logs -f modeltap</code></pre>
+  <p>The included Compose configuration binds the proxy to host port 8080, mounts both CA files read-only, and uses <code>host.docker.internal</code> to access GOST on port 1081 and Alloy on port 4318 from Docker Desktop on macOS. Install the CA certificate in each client trust store; do not install or distribute the private key. In production, use Docker Secrets, Kubernetes Secrets, or a secret manager for the CA key.</p>
+
+  <h2 id="grafana">Grafana Cloud</h2>
+  <p>After <code>ai_proxy_requests</code> appears in Explore, open <strong>Dashboards → New → Import</strong>, upload <code>grafana/modeltap-dashboard.json</code>, and select the same Prometheus data source. Click <strong>Import</strong> to create the ModelTap dashboard. Re-import with the same dashboard UID to overwrite an older copy after the JSON changes.</p>
+  <p>The dashboard reads cumulative counters so the first exported usage sample is visible immediately. Token charts and tables group data by <code>site</code>, <code>model</code>, and <code>type</code> and abbreviate large values as K, M, or B. Cost is displayed in USD and grouped by <code>site</code> and <code>model</code>.</p>
+
+  <h2>Docker Hub releases</h2>
+  <p>Pushing any Git tag triggers the release workflow. Configure repository secrets <code>DOCKERHUB_USERNAME</code> and <code>DOCKERHUB_TOKEN</code>. After the image is built and pushed with both the version (without a leading <code>v</code>) and <code>latest</code> tags, the workflow publishes a GitHub Release with automatically generated notes. A tag whose version cannot be used as a Docker tag fails before publishing.</p>
+
+  <h2 id="security">Security</h2>
+  <div class="note">Use TLS interception only for traffic you are authorized to inspect. It exposes request and response content to the proxy process.</div>
+  <ul>
+    <li>Restrict proxy access to trusted clients and networks.</li>
+    <li>Protect and rotate the CA private key if exposure is suspected.</li>
+    <li>Keep credentials in environment variables, mounted secrets, or a secret manager.</li>
+    <li>Never expose API keys, prompts, completions, request IDs, or user IDs as metrics labels.</li>
+  </ul>
+  <p>See <a href="https://github.com/tenfyzhong/modeltap/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> and the <a href="https://github.com/tenfyzhong/modeltap/blob/main/LICENSE">MIT License</a>.</p>
+</main>
+</body>
+</html>

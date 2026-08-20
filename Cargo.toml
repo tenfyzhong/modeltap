@@ -1,0 +1,48 @@
+[package]
+name = "modeltap"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "MITM AI traffic monitor with configurable egress proxies"
+
+[lib]
+name = "modeltap"
+path = "src/lib.rs"
+
+[[bin]]
+name = "modeltap"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+chrono-tz = "0.10"
+http = "1"
+http-body-util = "0.1"
+opentelemetry = "0.32"
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "metrics", "reqwest-blocking-client"] }
+opentelemetry_sdk = { version = "0.32", features = ["metrics"] }
+globset = "0.4"
+flate2 = "1"
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "server-auto", "tokio"] }
+rustls = "0.23"
+rustls-native-certs = "0.8"
+rustls-pemfile = "2"
+rcgen = { version = "0.14", features = ["pem", "x509-parser"] }
+rust_decimal = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+tokio-rustls = "0.26"
+tower-service = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"

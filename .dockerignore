@@ -1,0 +1,8 @@
+.git
+.github
+target
+certs
+*.pem
+config.test.yaml
+docker-compose.yml
+grafana

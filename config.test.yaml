@@ -1,0 +1,130 @@
+proxy:
+  listen: 127.0.0.1:8080
+
+logging:
+  level: info
+
+tls:
+  ca_cert_file: ./certs/modeltap-ca-cert.pem
+  ca_key_file: ./certs/modeltap-ca-key.pem
+
+telemetry:
+  otlp:
+    endpoint: http://127.0.0.1:4318
+    service_name: modeltap-test
+
+egress:
+  default: privoxy
+  proxies:
+    - id: privoxy
+      url: http://127.0.0.1:8118
+
+sites:
+  - id: openai
+    provider: openai
+    hosts:
+      - chatgpt.com
+    mitm: true
+  - id: anthropic
+    provider: anthropic
+    hosts:
+      - anthropic.com
+    mitm: true
+  - id: gemini
+    provider: gemini
+    hosts:
+      - googleapis.com
+    mitm: true
+  - id: deepseek
+    provider: deepseek
+    hosts:
+      - api.deepseek.com
+    mitm: true
+    egress: direct
+
+pricing:
+  timezone: Asia/Shanghai
+  # Official first-party API list prices checked on 2026-08-20.
+  # All rates are USD per 1M tokens. DeepSeek's official CNY prices use its
+  # Beijing-time peak windows and are converted with the 2026-08-19 ECB rates:
+  # 1 EUR = 7.8197 CNY and 1 EUR = 1.1605 USD (1 CNY = 0.148407227899 USD).
+  peak_windows:
+    - start: "09:00"
+      end: "12:00"
+    - start: "14:00"
+      end: "18:00"
+  rules:
+    - site: openai
+      model: "gpt-5.6-sol*"
+      currency: USD
+      rates:
+        input: 5
+        output: 30
+        cache_read: 0.5
+    - site: openai
+      model: "gpt-5.6-terra*"
+      currency: USD
+      rates:
+        input: 2
+        output: 12
+        cache_read: 0.2
+    - site: openai
+      model: "gpt-5.6-luna*"
+      currency: USD
+      rates:
+        input: 0.2
+        output: 1.2
+        cache_read: 0.02
+    - site: anthropic
+      model: "claude-opus-4-8*"
+      currency: USD
+      rates:
+        input: 5
+        output: 25
+        cache_read: 0.5
+        cache_write: 6.25
+    - site: anthropic
+      model: "claude-sonnet-4-6*"
+      currency: USD
+      rates:
+        input: 3
+        output: 15
+        cache_read: 0.3
+        cache_write: 3.75
+    - site: anthropic
+      model: "claude-haiku-4-5*"
+      currency: USD
+      rates:
+        input: 1
+        output: 5
+        cache_read: 0.1
+        cache_write: 1.25
+    - site: gemini
+      model: "gemini-3.7-flash*"
+      currency: USD
+      rates:
+        input: 0.75
+        output: 3.75
+        cache_read: 0.075
+    - site: deepseek
+      model: "deepseek-v4-flash*"
+      currency: USD
+      peak:
+        input: 0.445221684
+        output: 1.335665051
+        cache_read: 0.014840723
+      off_peak:
+        input: 0.222610842
+        output: 0.667832526
+        cache_read: 0.007420361
+    - site: deepseek
+      model: "deepseek-v4-pro*"
+      currency: USD
+      peak:
+        input: 1.335665051
+        output: 4.006995153
+        cache_read: 0.044522168
+      off_peak:
+        input: 0.667832526
+        output: 2.003497577
+        cache_read: 0.022261084
