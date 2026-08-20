@@ -1,0 +1,23 @@
+name: Bump Homebrew formula
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: read
+
+jobs:
+  homebrew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew formula
+        uses: dawidd6/action-homebrew-bump-formula@v8
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          tap: tenfyzhong/tap
+          formula: modeltap
+          tag: ${{ github.ref }}
+          revision: ${{ github.sha }}
+          force: false
