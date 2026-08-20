@@ -19,14 +19,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish-image:
+  resolve-tags:
     runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.tags.outputs.release }}
+      image: ${{ steps.tags.outputs.image }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-
       - name: Resolve release and image tags
         id: tags
         env:
@@ -48,6 +46,30 @@ jobs:
           echo "release=$release_tag" >> "$GITHUB_OUTPUT"
           echo "image=$image_tag" >> "$GITHUB_OUTPUT"
 
+  build-and-push-architecture:
+    needs: resolve-tags
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            platform: linux/amd64
+          - architecture: arm64
+            platform: linux/arm64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up QEMU
+        if: matrix.architecture == 'arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -55,18 +77,44 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Build and push architecture image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/modeltap:${{ steps.tags.outputs.image }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/modeltap:latest
+          platforms: ${{ matrix.platform }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/modeltap:${{ needs.resolve-tags.outputs.image }}-${{ matrix.architecture }}
+
+  publish-manifest:
+    needs:
+      - resolve-tags
+      - build-and-push-architecture
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish multi-architecture manifest
+        env:
+          IMAGE_REPOSITORY: ${{ secrets.DOCKERHUB_USERNAME }}/modeltap
+          IMAGE_TAG: ${{ needs.resolve-tags.outputs.image }}
+        run: |
+          docker buildx imagetools create \
+            --tag "$IMAGE_REPOSITORY:$IMAGE_TAG" \
+            --tag "$IMAGE_REPOSITORY:latest" \
+            "$IMAGE_REPOSITORY:$IMAGE_TAG-amd64" \
+            "$IMAGE_REPOSITORY:$IMAGE_TAG-arm64"
 
   publish-release:
     if: github.event_name == 'push'
-    needs: publish-image
+    needs: publish-manifest
     permissions:
       contents: write
     runs-on: ubuntu-latest
