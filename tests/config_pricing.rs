@@ -211,6 +211,8 @@ fn uses_daily_peak_windows_in_the_configured_timezone() {
     let price = book.lookup("openai", "gpt-5-mini", peak).unwrap();
     assert_eq!(price.rate(TokenType::Input).unwrap().to_string(), "2.50");
     assert_eq!(price.rate(TokenType::Output).unwrap().to_string(), "10");
+    assert_eq!(price.rate_f64(TokenType::Input), Some(2.5));
+    assert_eq!(price.rate_f64(TokenType::Output), Some(10.0));
 }
 
 #[test]

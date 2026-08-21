@@ -36,6 +36,83 @@ fn automatically_detects_anthropic_sse_completion() {
 }
 
 #[test]
+fn processes_all_completed_sse_events_in_a_single_body_chunk() {
+    let mut parser = AutoStreamUsageParser::new();
+    let (_, usage) = parser
+        .push(
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5-mini\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10}}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5-mini\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20}}}\n\n",
+        )
+        .unwrap();
+
+    assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
+    assert_eq!(usage.tokens.output, 20);
+}
+
+#[test]
+fn retains_the_model_from_an_early_openai_event_without_usage() {
+    let mut parser = AutoStreamUsageParser::new();
+    assert!(parser
+        .push(b"data: {\"model\":\"gpt-5-mini\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
+        .is_none());
+
+    assert!(
+        parser
+            .push(b"data: {\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\n")
+            .is_none()
+    );
+    let (_, usage) = parser.push(b"data: [DONE]\n\n").unwrap();
+
+    assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
+    assert_eq!(usage.tokens.output, 20);
+}
+
+#[test]
+fn accepts_sse_fields_without_spaces_or_with_tabs() {
+    let mut parser = AutoStreamUsageParser::new();
+    assert!(parser
+        .push(b"data:{\"model\":\"gpt-5-mini\",\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\n")
+        .is_none());
+
+    let (_, usage) = parser.push(b"data:\t[DONE]\n\n").unwrap();
+
+    assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
+    assert_eq!(usage.tokens.output, 20);
+}
+
+#[test]
+fn ignores_an_empty_sse_event() {
+    let mut parser = AutoStreamUsageParser::new();
+    assert!(parser.push(b"\n\n").is_none());
+    assert!(
+        parser
+            .push(b"data: {\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\n")
+            .is_none()
+    );
+    assert!(parser.push(b"data: [DONE]\n\n").is_some());
+}
+
+#[test]
+fn parses_a_large_sse_event_split_across_tiny_transport_chunks() {
+    let mut parser = AutoStreamUsageParser::new();
+    let event = format!(
+        "data: {{\"model\":\"gpt-5-mini\",\"choices\":[{{\"delta\":{{\"content\":\"{}\"}}}}]}}\n\n",
+        "x".repeat(128 * 1024)
+    );
+    for byte in event.as_bytes() {
+        assert!(parser.push(std::slice::from_ref(byte)).is_none());
+    }
+    assert!(
+        parser
+            .push(b"data: {\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\n")
+            .is_none()
+    );
+
+    let (_, usage) = parser.push(b"data:[DONE]\n\n").unwrap();
+    assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
+    assert_eq!(usage.tokens.output, 20);
+}
+
+#[test]
 fn parses_cursor_connect_usage_for_any_requested_model() {
     let mut parser = CursorUsageParser::new();
     let model = "glm-4.7";
@@ -211,6 +288,22 @@ fn parses_a_fragmented_websocket_response_completed_usage_event() {
             cache_write: 0,
         }
     );
+}
+
+#[test]
+fn retains_buffered_websocket_frames_after_reporting_usage() {
+    let first = websocket_text_frame(
+        br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","usage":{"input_tokens":100,"output_tokens":10}}}"#,
+    );
+    let second = websocket_text_frame(
+        br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","usage":{"input_tokens":100,"output_tokens":20}}}"#,
+    );
+    let mut parser = WebSocketUsageParser::new();
+    let mut frames = first;
+    frames.extend(second);
+
+    assert_eq!(parser.push(&frames).unwrap().1.tokens.output, 10);
+    assert_eq!(parser.push(&[]).unwrap().1.tokens.output, 20);
 }
 
 #[test]

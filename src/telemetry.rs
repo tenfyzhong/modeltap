@@ -9,7 +9,7 @@ use opentelemetry_otlp::{MetricExporter, Protocol, WithExportConfig};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use thiserror::Error;
-use tracing::info;
+use tracing::debug;
 
 #[derive(Debug, Error)]
 pub enum TelemetryError {
@@ -121,7 +121,7 @@ impl Telemetry {
             .as_ref()
             .map(|price| price.currency.to_owned())
             .unwrap_or_else(|| "unknown".to_owned());
-        let base = vec![
+        let base = [
             KeyValue::new("site", site.to_owned()),
             KeyValue::new("model", model.to_owned()),
             KeyValue::new("agent_cli", agent_cli.to_owned()),
@@ -139,20 +139,27 @@ impl Telemetry {
             if amount == 0 {
                 continue;
             }
-            let mut attributes = base.clone();
-            attributes.push(KeyValue::new("type", kind));
+            let attributes = [
+                base[0].clone(),
+                base[1].clone(),
+                base[2].clone(),
+                KeyValue::new("type", kind),
+            ];
             self.tokens.add(amount, &attributes);
-            if let Some(price) = price.as_ref().and_then(|price| price.rate(token_type)) {
-                let mut attributes = base.clone();
-                attributes.push(KeyValue::new("price_period", period.unwrap_or("unknown")));
-                attributes.push(KeyValue::new("currency", currency.clone()));
-                let value =
-                    price.to_string().parse::<f64>().unwrap_or(0.0) * amount as f64 / 1_000_000.0;
+            if let Some(price) = price.as_ref().and_then(|price| price.rate_f64(token_type)) {
+                let attributes = [
+                    base[0].clone(),
+                    base[1].clone(),
+                    base[2].clone(),
+                    KeyValue::new("price_period", period.unwrap_or("unknown")),
+                    KeyValue::new("currency", currency.clone()),
+                ];
+                let value = price * amount as f64 / 1_000_000.0;
                 self.cost.add(value, &attributes);
                 total_cost += value;
             }
         }
-        info!(
+        debug!(
             report = %usage_report_summary(site, model, agent_cli, usage),
             currency = %currency,
             price_period = period.unwrap_or("unknown"),
@@ -180,6 +187,15 @@ impl Telemetry {
     pub fn record_local_processing_duration(&self, site: &str, microseconds: f64) {
         self.local_processing_duration
             .record(microseconds, &[KeyValue::new("site", site.to_owned())]);
+    }
+
+    pub fn record_local_processing_duration_with_attributes(
+        &self,
+        microseconds: f64,
+        attributes: &[KeyValue],
+    ) {
+        self.local_processing_duration
+            .record(microseconds, attributes);
     }
 
     pub fn force_flush(&self) -> Result<(), TelemetryError> {

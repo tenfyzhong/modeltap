@@ -100,6 +100,16 @@ struct CompiledRule {
     currency: String,
     peak: PriceRates,
     off_peak: PriceRates,
+    peak_f64: FloatPriceRates,
+    off_peak_f64: FloatPriceRates,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct FloatPriceRates {
+    input: Option<f64>,
+    output: Option<f64>,
+    cache_read: Option<f64>,
+    cache_write: Option<f64>,
 }
 
 #[derive(Debug)]
@@ -113,11 +123,21 @@ pub struct ResolvedPrice<'a> {
     pub period: PricePeriod,
     pub currency: &'a str,
     rates: &'a PriceRates,
+    float_rates: &'a FloatPriceRates,
 }
 
 impl ResolvedPrice<'_> {
     pub fn rate(&self, token_type: TokenType) -> Option<Decimal> {
         self.rates.rate(token_type)
+    }
+
+    pub fn rate_f64(&self, token_type: TokenType) -> Option<f64> {
+        match token_type {
+            TokenType::Input => self.float_rates.input,
+            TokenType::Output => self.float_rates.output,
+            TokenType::CacheRead => self.float_rates.cache_read,
+            TokenType::CacheWrite => self.float_rates.cache_write,
+        }
     }
 }
 
@@ -159,6 +179,8 @@ impl PriceBook {
                     site: rule.site.clone(),
                     matcher,
                     currency: rule.currency.clone(),
+                    peak_f64: FloatPriceRates::from_rates(&peak),
+                    off_peak_f64: FloatPriceRates::from_rates(&off_peak),
                     peak,
                     off_peak,
                 })
@@ -192,16 +214,32 @@ impl PriceBook {
             .iter()
             .find(|rule| rule.site == site && rule.matcher.is_match(model))?;
         let period = self.period_at(instant);
-        let rates = match period {
-            PricePeriod::Peak => &rule.peak,
-            PricePeriod::OffPeak => &rule.off_peak,
+        let (rates, float_rates) = match period {
+            PricePeriod::Peak => (&rule.peak, &rule.peak_f64),
+            PricePeriod::OffPeak => (&rule.off_peak, &rule.off_peak_f64),
         };
         Some(ResolvedPrice {
             period,
             currency: &rule.currency,
             rates,
+            float_rates,
         })
     }
+}
+
+impl FloatPriceRates {
+    fn from_rates(rates: &PriceRates) -> Self {
+        Self {
+            input: decimal_to_f64(rates.input),
+            output: decimal_to_f64(rates.output),
+            cache_read: decimal_to_f64(rates.cache_read),
+            cache_write: decimal_to_f64(rates.cache_write),
+        }
+    }
+}
+
+fn decimal_to_f64(value: Option<Decimal>) -> Option<f64> {
+    value.and_then(|value| value.to_string().parse().ok())
 }
 
 fn parse_window(input: &str) -> Result<(usize, usize), PricingError> {

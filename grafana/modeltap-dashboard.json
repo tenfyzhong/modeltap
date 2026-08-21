@@ -92,7 +92,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 55 },
       "id": 6,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Value" }] },
       "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))", "format": "table", "instant": true, "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
@@ -103,7 +103,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 55 },
       "id": 7,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Value" }] },
       "targets": [{ "editorMode": "code", "expr": "sum by (site, model, type) ({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"})", "format": "table", "instant": true, "refId": "A" }],
@@ -158,11 +158,21 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 47 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
       "id": 13,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))", "legendFormat": "{{site}}", "refId": "A" }],
       "title": "P95 ModelTap chunk processing duration by site",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
+      "id": 14,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\"}[$__rate_interval]))", "legendFormat": "{{site}}", "refId": "A" }],
+      "title": "Average ModelTap chunk processing duration by site",
       "type": "timeseries"
     }
   ],
