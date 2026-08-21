@@ -48,24 +48,22 @@ jobs:
 
   build-and-push-architecture:
     needs: resolve-tags
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - architecture: amd64
             platform: linux/amd64
+            runner: ubuntu-latest
           - architecture: arm64
             platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-
-      - name: Set up QEMU
-        if: matrix.architecture == 'arm64'
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -84,6 +82,8 @@ jobs:
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/modeltap:${{ needs.resolve-tags.outputs.image }}-${{ matrix.architecture }}
+          cache-from: type=gha,scope=modeltap-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=modeltap-${{ matrix.architecture }}
 
   publish-manifest:
     needs:
@@ -306,6 +306,7 @@ jobs:
       - name: Add bottle metadata to formula
         run: |
           brew tap "$TAP_NAME" "$GITHUB_WORKSPACE/homebrew-tap"
+          brew trust "$TAP_NAME"
           bottle_json="$(find bottle -name '*.bottle.json' -print -quit)"
           if [[ -z "$bottle_json" ]]; then
             echo "Homebrew bottle metadata artifact is missing" >&2
