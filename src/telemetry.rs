@@ -23,6 +23,7 @@ pub struct Telemetry {
     tokens: Counter<u64>,
     cost: Counter<f64>,
     upstream_first_response: Histogram<f64>,
+    processing_duration: Histogram<f64>,
     telemetry_record_duration: Histogram<f64>,
 }
 
@@ -56,6 +57,13 @@ impl Telemetry {
                 )
                 .with_unit("s")
                 .build(),
+            processing_duration: meter
+                .f64_histogram("ai_proxy_processing_duration_seconds")
+                .with_description(
+                    "Time from forwarding a proxied request until ModelTap finishes handling its response",
+                )
+                .with_unit("s")
+                .build(),
             telemetry_record_duration: meter
                 .f64_histogram("ai_proxy_telemetry_record_duration_seconds")
                 .with_description("Local time spent recording usage telemetry")
@@ -67,10 +75,33 @@ impl Telemetry {
     pub fn record_usage(
         &self,
         site: &str,
-        provider: &str,
         model: &str,
+        agent_cli: &str,
         usage: &TokenUsage,
         prices: &PriceBook,
+    ) {
+        self.record_usage_inner(site, model, agent_cli, usage, prices, true);
+    }
+
+    pub fn record_usage_tokens(
+        &self,
+        site: &str,
+        model: &str,
+        agent_cli: &str,
+        usage: &TokenUsage,
+        prices: &PriceBook,
+    ) {
+        self.record_usage_inner(site, model, agent_cli, usage, prices, false);
+    }
+
+    fn record_usage_inner(
+        &self,
+        site: &str,
+        model: &str,
+        agent_cli: &str,
+        usage: &TokenUsage,
+        prices: &PriceBook,
+        count_request: bool,
     ) {
         let started = std::time::Instant::now();
         let price = prices.lookup(site, model, Utc::now());
@@ -84,10 +115,12 @@ impl Telemetry {
             .unwrap_or_else(|| "unknown".to_owned());
         let base = vec![
             KeyValue::new("site", site.to_owned()),
-            KeyValue::new("provider", provider.to_owned()),
             KeyValue::new("model", model.to_owned()),
+            KeyValue::new("agent_cli", agent_cli.to_owned()),
         ];
-        self.requests.add(1, &base);
+        if count_request {
+            self.requests.add(1, &base);
+        }
         let mut total_cost = 0.0;
         for (kind, amount, token_type) in [
             ("input", usage.input, TokenType::Input),
@@ -112,7 +145,7 @@ impl Telemetry {
             }
         }
         info!(
-            report = %usage_report_summary(site, provider, model, usage),
+            report = %usage_report_summary(site, model, agent_cli, usage),
             currency = %currency,
             price_period = period.unwrap_or("unknown"),
             cost = total_cost,
@@ -124,14 +157,14 @@ impl Telemetry {
         );
     }
 
-    pub fn record_response_duration(&self, site: &str, provider: &str, seconds: f64) {
-        self.upstream_first_response.record(
-            seconds,
-            &[
-                KeyValue::new("site", site.to_owned()),
-                KeyValue::new("provider", provider.to_owned()),
-            ],
-        );
+    pub fn record_response_duration(&self, site: &str, seconds: f64) {
+        self.upstream_first_response
+            .record(seconds, &[KeyValue::new("site", site.to_owned())]);
+    }
+
+    pub fn record_processing_duration(&self, site: &str, seconds: f64) {
+        self.processing_duration
+            .record(seconds, &[KeyValue::new("site", site.to_owned())]);
     }
 
     pub fn force_flush(&self) -> Result<(), TelemetryError> {

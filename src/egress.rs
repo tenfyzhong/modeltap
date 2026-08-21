@@ -22,7 +22,7 @@ pub enum UpstreamStream {
 }
 
 impl UpstreamStream {
-    fn negotiated_h2(&self) -> bool {
+    pub(crate) fn negotiated_h2(&self) -> bool {
         match self {
             Self::Plain(_) => false,
             Self::Tls(stream) => stream

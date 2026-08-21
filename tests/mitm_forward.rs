@@ -1,3 +1,7 @@
+use bytes::Bytes;
+use http_body_util::{BodyExt, Empty};
+use hyper::Request;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use modeltap::config::Config;
 use modeltap::egress::EgressConnector;
 use modeltap::mitm::MitmAuthority;
@@ -228,7 +232,7 @@ async fn connect_mitm_forwards_through_configured_cascading_proxy() {
 
     let config = Arc::new(
         Config::from_yaml(&format!(
-            "egress:\n  default: gost\n  proxies:\n    - id: gost\n      url: http://{upstream_address}\n      target_tls:\n        ca_file: {}\nsites:\n  - id: openai\n    provider: openai\n    hosts: [api.openai.com]\n    mitm: true\npricing: {{timezone: Asia/Shanghai}}\n",
+            "egress:\n  default: gost\n  proxies:\n    - id: gost\n      url: http://{upstream_address}\n      target_tls:\n        ca_file: {}\nsites:\n  - id: openai\n    hosts: [api.openai.com]\npricing: {{timezone: Asia/Shanghai}}\n",
             ca_file.path().display()
         ))
         .unwrap(),
@@ -245,6 +249,12 @@ async fn connect_mitm_forwards_through_configured_cascading_proxy() {
         }
     });
 
+    let mut roots = RootCertStore::empty();
+    roots.add(authority.root_certificate()).unwrap();
+    let mut client_config = ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    client_config.alpn_protocols = vec![b"h2".to_vec()];
     let mut client = TcpStream::connect(proxy_address).await.unwrap();
     client
         .write_all(b"CONNECT api.openai.com:443 HTTP/1.1\r\nHost: api.openai.com:443\r\n\r\n")
@@ -256,24 +266,33 @@ async fn connect_mitm_forwards_through_configured_cascading_proxy() {
         &connect_response,
         b"HTTP/1.1 200 Connection Established\r\n\r\n"
     );
-
-    let mut roots = RootCertStore::empty();
-    roots.add(authority.root_certificate()).unwrap();
-    let client_config = ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    let mut tls = TlsConnector::from(Arc::new(client_config))
+    let tls = TlsConnector::from(Arc::new(client_config))
         .connect(ServerName::try_from("api.openai.com").unwrap(), client)
         .await
         .unwrap();
-    tls.write_all(b"GET /v1/models HTTP/1.1\r\nHost: api.openai.com\r\nConnection: close\r\n\r\n")
+    let (mut sender, connection) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
+        .handshake(TokioIo::new(tls))
         .await
         .unwrap();
-    let mut response = Vec::new();
-    tls.read_to_end(&mut response).await.unwrap();
-    let response = String::from_utf8(response).unwrap();
-    assert!(response.contains("200 OK"));
-    assert!(response.ends_with("\r\n\r\nok"));
+    tokio::spawn(async move {
+        connection.await.unwrap();
+    });
+    let response = sender
+        .send_request(
+            Request::builder()
+                .uri("/v1/models")
+                .header("host", "api.openai.com")
+                .body(Empty::<Bytes>::new())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), http::StatusCode::OK);
+    assert_eq!(
+        response.into_body().collect().await.unwrap().to_bytes(),
+        "ok"
+    );
+    drop(sender);
 
     proxy.await.unwrap();
     upstream.await.unwrap();

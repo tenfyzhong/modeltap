@@ -21,17 +21,11 @@ egress:
 
 sites:
   - id: openai
-    provider: openai
     hosts: [api.openai.com]
-    mitm: true
   - id: anthropic
-    provider: anthropic
     hosts: [api.anthropic.com]
-    mitm: true
   - id: gemini
-    provider: gemini
     hosts: [googleapis.com]
-    mitm: true
 
 pricing:
   timezone: Asia/Shanghai

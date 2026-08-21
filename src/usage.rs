@@ -21,7 +21,9 @@ pub enum Provider {
     OpenAiResponses,
     OpenAiEmbedding,
     Anthropic,
+    DeepSeek,
     Gemini,
+    Cursor,
 }
 
 pub fn permessage_deflate_server_no_context_takeover(value: &str) -> Option<bool> {
@@ -43,11 +45,13 @@ pub fn permessage_deflate_server_no_context_takeover(value: &str) -> Option<bool
 impl Provider {
     pub fn from_config(value: &str) -> Option<Self> {
         match value {
-            "openai" | "openai_chat" | "deepseek" => Some(Self::OpenAiChat),
+            "openai" | "openai_chat" => Some(Self::OpenAiChat),
             "openai_responses" => Some(Self::OpenAiResponses),
             "openai_embeddings" => Some(Self::OpenAiEmbedding),
             "anthropic" => Some(Self::Anthropic),
+            "deepseek" => Some(Self::DeepSeek),
             "gemini" => Some(Self::Gemini),
+            "cursor" => Some(Self::Cursor),
             _ => None,
         }
     }
@@ -58,8 +62,119 @@ impl Provider {
             Self::OpenAiChat | Self::OpenAiEmbedding => parse_openai(&value),
             Self::OpenAiResponses => parse_openai(value.get("response").unwrap_or(&value)),
             Self::Anthropic => parse_anthropic(&value),
+            Self::DeepSeek => parse_deepseek(&value),
             Self::Gemini => parse_gemini(&value),
+            Self::Cursor => None,
         }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAiChat => "openai",
+            Self::OpenAiResponses => "openai_responses",
+            Self::OpenAiEmbedding => "openai_embeddings",
+            Self::Anthropic => "anthropic",
+            Self::DeepSeek => "deepseek",
+            Self::Gemini => "gemini",
+            Self::Cursor => "cursor",
+        }
+    }
+}
+
+pub fn auto_parse_json(bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    let provider = if value.get("usageMetadata").is_some()
+        || value
+            .get("response")
+            .is_some_and(|response| response.get("usageMetadata").is_some())
+    {
+        Provider::Gemini
+    } else if value.get("response").is_some()
+        || value
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind.starts_with("response."))
+    {
+        Provider::OpenAiResponses
+    } else if value.get("message").is_some()
+        || value
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind.starts_with("message_"))
+        || value
+            .get("usage")
+            .is_some_and(|usage| usage.get("input_tokens").is_some())
+    {
+        Provider::Anthropic
+    } else if value
+        .get("usage")
+        .is_some_and(|usage| usage.get("prompt_tokens").is_some())
+    {
+        Provider::OpenAiChat
+    } else {
+        return None;
+    };
+    provider.parse_json(bytes).map(|usage| (provider, usage))
+}
+
+const MAX_CURSOR_CONNECT_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Parses Cursor's Connect/Protobuf agent stream without relying on a model allowlist.
+pub struct CursorUsageParser {
+    request_buffer: Vec<u8>,
+    response_buffer: Vec<u8>,
+    model: Option<String>,
+    request_reported: bool,
+}
+
+impl CursorUsageParser {
+    pub fn new() -> Self {
+        Self {
+            request_buffer: Vec::new(),
+            response_buffer: Vec::new(),
+            model: None,
+            request_reported: false,
+        }
+    }
+
+    pub fn push_request(&mut self, bytes: &[u8]) -> Option<String> {
+        self.request_buffer.extend_from_slice(bytes);
+        while let Some(message) = take_connect_message(&mut self.request_buffer) {
+            if let Some(model) = cursor_model_from_request(&message) {
+                self.model = Some(model.clone());
+                return Some(model);
+            }
+        }
+        None
+    }
+
+    pub fn push_response(&mut self, bytes: &[u8]) -> Option<ParsedUsage> {
+        self.response_buffer.extend_from_slice(bytes);
+        while let Some(message) = take_connect_message(&mut self.response_buffer) {
+            let Some(interaction) = protobuf_length_field(&message, 1) else {
+                continue;
+            };
+            if let Some(token_delta) = protobuf_length_field(interaction, 8)
+                .and_then(|value| protobuf_varint_field(value, 1))
+            {
+                return Some(ParsedUsage {
+                    model: self.model.clone(),
+                    tokens: TokenUsage {
+                        output: token_delta,
+                        ..TokenUsage::default()
+                    },
+                });
+            }
+        }
+        None
+    }
+
+    pub fn request_reported(&self) -> bool {
+        self.request_reported
+    }
+
+    pub fn mark_request_reported(&mut self) {
+        self.request_reported = true;
     }
 }
 
@@ -67,6 +182,70 @@ pub struct StreamUsageParser {
     provider: Provider,
     buffer: Vec<u8>,
     latest: Option<ParsedUsage>,
+}
+
+pub struct AutoStreamUsageParser {
+    buffer: Vec<u8>,
+    latest: Option<(Provider, ParsedUsage)>,
+}
+
+impl AutoStreamUsageParser {
+    pub fn new() -> Self {
+        Self {
+            buffer: Vec::new(),
+            latest: None,
+        }
+    }
+
+    pub fn push(&mut self, bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
+        self.buffer.extend_from_slice(bytes);
+        while let Some(end) = find_event_end(&self.buffer) {
+            let event = self.buffer.drain(..end).collect::<Vec<_>>();
+            let separator = if event.ends_with(b"\r\n\r\n") { 4 } else { 2 };
+            if let Some(usage) = self.process_event(&event[..event.len() - separator]) {
+                return Some(usage);
+            }
+        }
+        None
+    }
+
+    fn process_event(&mut self, event: &[u8]) -> Option<(Provider, ParsedUsage)> {
+        let event = std::str::from_utf8(event).ok()?;
+        let mut event_name = "";
+        let mut data = String::new();
+        for line in event.lines() {
+            let line = line.trim_end_matches('\r');
+            if let Some(value) = line.strip_prefix("event:") {
+                event_name = value.trim();
+            } else if let Some(value) = line.strip_prefix("data:") {
+                if !data.is_empty() {
+                    data.push('\n');
+                }
+                data.push_str(value.trim_start());
+            }
+        }
+        if data == "[DONE]" {
+            return self.latest.clone();
+        }
+        if let Some((provider, mut usage)) = auto_parse_json(data.as_bytes()) {
+            if usage.model.is_none() {
+                usage.model = self
+                    .latest
+                    .as_ref()
+                    .and_then(|(_, usage)| usage.model.clone());
+            }
+            self.latest = Some((provider, usage));
+        }
+        matches!(event_name, "message_stop" | "response.completed")
+            .then(|| self.latest.clone())
+            .flatten()
+            .or_else(|| {
+                self.latest
+                    .as_ref()
+                    .filter(|(provider, _)| *provider == Provider::Gemini)
+                    .cloned()
+            })
+    }
 }
 
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -87,36 +266,30 @@ struct PerMessageDeflate {
 }
 
 pub struct WebSocketUsageParser {
-    provider: Provider,
     buffer: Vec<u8>,
     fragmented_opcode: Option<u8>,
     fragmented_compressed: bool,
     fragments: Vec<u8>,
-    sse: StreamUsageParser,
+    sse: AutoStreamUsageParser,
     permessage_deflate: Option<PerMessageDeflate>,
 }
 
 impl WebSocketUsageParser {
-    pub fn new(provider: Provider) -> Self {
-        Self::build(provider, None)
+    pub fn new() -> Self {
+        Self::build(None)
     }
 
-    pub fn with_permessage_deflate(provider: Provider, server_no_context_takeover: bool) -> Self {
-        Self::build(provider, Some(server_no_context_takeover))
+    pub fn with_permessage_deflate(server_no_context_takeover: bool) -> Self {
+        Self::build(Some(server_no_context_takeover))
     }
 
-    fn build(provider: Provider, server_no_context_takeover: Option<bool>) -> Self {
-        let provider = match provider {
-            Provider::OpenAiChat => Provider::OpenAiResponses,
-            provider => provider,
-        };
+    fn build(server_no_context_takeover: Option<bool>) -> Self {
         Self {
-            provider,
             buffer: Vec::new(),
             fragmented_opcode: None,
             fragmented_compressed: false,
             fragments: Vec::new(),
-            sse: StreamUsageParser::new(provider),
+            sse: AutoStreamUsageParser::new(),
             permessage_deflate: server_no_context_takeover.map(|server_no_context_takeover| {
                 PerMessageDeflate {
                     decompressor: Decompress::new(false),
@@ -126,7 +299,7 @@ impl WebSocketUsageParser {
         }
     }
 
-    pub fn push(&mut self, bytes: &[u8]) -> Option<ParsedUsage> {
+    pub fn push(&mut self, bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
         self.buffer.extend_from_slice(bytes);
         while let Some(frame) = websocket_frame(&self.buffer) {
             let mut payload = self.buffer
@@ -153,7 +326,7 @@ impl WebSocketUsageParser {
         opcode: u8,
         compressed: bool,
         payload: &[u8],
-    ) -> Option<ParsedUsage> {
+    ) -> Option<(Provider, ParsedUsage)> {
         match opcode {
             0x1 => {
                 if fin {
@@ -187,7 +360,11 @@ impl WebSocketUsageParser {
         }
     }
 
-    fn process_message(&mut self, payload: &[u8], compressed: bool) -> Option<ParsedUsage> {
+    fn process_message(
+        &mut self,
+        payload: &[u8],
+        compressed: bool,
+    ) -> Option<(Provider, ParsedUsage)> {
         if !compressed {
             return self.process_text(payload);
         }
@@ -238,13 +415,13 @@ impl WebSocketUsageParser {
         self.fragments.extend_from_slice(payload);
     }
 
-    fn process_text(&mut self, payload: &[u8]) -> Option<ParsedUsage> {
+    fn process_text(&mut self, payload: &[u8]) -> Option<(Provider, ParsedUsage)> {
         if let Ok(value) = serde_json::from_slice::<Value>(payload) {
             if matches!(
                 value.get("type").and_then(Value::as_str),
                 Some("response.completed" | "response.done")
             ) {
-                return self.provider.parse_json(payload);
+                return auto_parse_json(payload);
             }
         }
         self.sse.push(payload)
@@ -298,7 +475,7 @@ impl StreamUsageParser {
             }
         }
         if data == "[DONE]" {
-            return matches!(self.provider, Provider::OpenAiChat)
+            return matches!(self.provider, Provider::OpenAiChat | Provider::DeepSeek)
                 .then(|| self.latest.clone())
                 .flatten();
         }
@@ -308,7 +485,10 @@ impl StreamUsageParser {
         }
         match self.provider {
             Provider::OpenAiResponses if event_name == "response.completed" => self.latest.clone(),
-            Provider::Anthropic if event_name == "message_stop" => self.latest.clone(),
+            Provider::Anthropic | Provider::DeepSeek if event_name == "message_stop" => {
+                self.latest.clone()
+            }
+            Provider::Gemini => self.latest.clone(),
             _ => None,
         }
     }
@@ -332,6 +512,104 @@ fn find_event_end(bytes: &[u8]) -> Option<usize> {
                 .position(|window| window == b"\n\n")
                 .map(|position| position + 2)
         })
+}
+
+fn take_connect_message(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
+    if buffer.len() < 5 {
+        return None;
+    }
+    let length = u32::from_be_bytes(buffer[1..5].try_into().ok()?) as usize;
+    if length > MAX_CURSOR_CONNECT_MESSAGE_BYTES {
+        buffer.clear();
+        return None;
+    }
+    let end = 5usize.checked_add(length)?;
+    if buffer.len() < end {
+        return None;
+    }
+    buffer.drain(..5);
+    Some(buffer.drain(..length).collect())
+}
+
+fn cursor_model_from_request(message: &[u8]) -> Option<String> {
+    let run_request = protobuf_length_field(message, 1)?;
+    let model_details =
+        protobuf_length_field(run_request, 3).or_else(|| protobuf_length_field(run_request, 9))?;
+    std::str::from_utf8(protobuf_length_field(model_details, 1)?)
+        .ok()
+        .filter(|model| !model.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn protobuf_length_field<'a>(message: &'a [u8], wanted_field: u64) -> Option<&'a [u8]> {
+    let mut cursor = 0;
+    while cursor < message.len() {
+        let key = protobuf_varint(message, &mut cursor)?;
+        let field = key >> 3;
+        match key & 0x07 {
+            0 => {
+                let _ = protobuf_varint(message, &mut cursor)?;
+            }
+            1 => cursor = cursor.checked_add(8)?,
+            2 => {
+                let length = usize::try_from(protobuf_varint(message, &mut cursor)?).ok()?;
+                let end = cursor.checked_add(length)?;
+                if end > message.len() {
+                    return None;
+                }
+                if field == wanted_field {
+                    return Some(&message[cursor..end]);
+                }
+                cursor = end;
+            }
+            5 => cursor = cursor.checked_add(4)?,
+            _ => return None,
+        }
+        if cursor > message.len() {
+            return None;
+        }
+    }
+    None
+}
+
+fn protobuf_varint_field(message: &[u8], wanted_field: u64) -> Option<u64> {
+    let mut cursor = 0;
+    while cursor < message.len() {
+        let key = protobuf_varint(message, &mut cursor)?;
+        let field = key >> 3;
+        match key & 0x07 {
+            0 => {
+                let value = protobuf_varint(message, &mut cursor)?;
+                if field == wanted_field {
+                    return Some(value);
+                }
+            }
+            1 => cursor = cursor.checked_add(8)?,
+            2 => {
+                let length = usize::try_from(protobuf_varint(message, &mut cursor)?).ok()?;
+                cursor = cursor.checked_add(length)?;
+            }
+            5 => cursor = cursor.checked_add(4)?,
+            _ => return None,
+        }
+        if cursor > message.len() {
+            return None;
+        }
+    }
+    None
+}
+
+fn protobuf_varint(message: &[u8], cursor: &mut usize) -> Option<u64> {
+    let mut value = 0_u64;
+    for shift in (0..64).step_by(7) {
+        let byte = *message.get(*cursor)?;
+        *cursor += 1;
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn websocket_frame(bytes: &[u8]) -> Option<WebSocketFrame> {
@@ -441,7 +719,22 @@ fn parse_anthropic(value: &Value) -> Option<ParsedUsage> {
     })
 }
 
+fn parse_deepseek(value: &Value) -> Option<ParsedUsage> {
+    if value.get("message").is_some() {
+        return parse_anthropic(value);
+    }
+    let usage = value.get("usage")?;
+    if usage.get("cache_read_input_tokens").is_some()
+        || usage.get("cache_creation_input_tokens").is_some()
+    {
+        parse_anthropic(value)
+    } else {
+        parse_openai(value)
+    }
+}
+
 fn parse_gemini(value: &Value) -> Option<ParsedUsage> {
+    let value = value.get("response").unwrap_or(value);
     let usage = value.get("usageMetadata")?;
     let prompt = number(usage, "promptTokenCount")?;
     let cache_read = number(usage, "cachedContentTokenCount").unwrap_or(0);

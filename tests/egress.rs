@@ -124,7 +124,7 @@ async fn transparent_connect_is_forwarded_through_the_configured_egress_proxy() 
     });
 
     let config = Arc::new(Config::from_yaml(&format!(
-        "proxy: {{listen: 127.0.0.1:8080}}\negress:\n  default: gost\n  proxies:\n    - id: gost\n      url: http://{upstream_address}\nsites:\n  - id: openai\n    provider: openai\n    hosts: [api.openai.com]\n    mitm: false\npricing: {{timezone: Asia/Shanghai}}\n"
+        "proxy: {{listen: 127.0.0.1:8080}}\negress:\n  default: gost\n  proxies:\n    - id: gost\n      url: http://{upstream_address}\npricing: {{timezone: Asia/Shanghai}}\n"
     )).unwrap());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let proxy_address = listener.local_addr().unwrap();

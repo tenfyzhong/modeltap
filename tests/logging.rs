@@ -18,8 +18,8 @@ fn body_previews_preserve_complete_utf8_content() {
 fn usage_report_summaries_include_every_reported_token_category() {
     let summary = usage_report_summary(
         "openai",
-        "openai",
         "gpt-5.6-terra",
+        "oh_my_pi",
         &TokenUsage {
             input: 70,
             output: 20,
@@ -30,6 +30,6 @@ fn usage_report_summaries_include_every_reported_token_category() {
 
     assert_eq!(
         summary,
-        "site=openai provider=openai model=gpt-5.6-terra input_tokens=70 output_tokens=20 cache_read_tokens=30 cache_write_tokens=4"
+        "site=openai model=gpt-5.6-terra agent_cli=oh_my_pi input_tokens=70 output_tokens=20 cache_read_tokens=30 cache_write_tokens=4"
     );
 }

@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use thiserror::Error;
 use url::Url;
 
@@ -57,6 +58,8 @@ impl LogLevel {
 pub struct LoggingConfig {
     #[serde(default)]
     pub level: LogLevel,
+    #[serde(default)]
+    pub file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -175,12 +178,10 @@ impl EgressProxyConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SiteConfig {
     pub id: String,
-    pub provider: String,
     pub hosts: Vec<String>,
-    #[serde(default)]
-    pub mitm: bool,
     pub egress: Option<String>,
     #[serde(default)]
     pub direct_fallback: bool,

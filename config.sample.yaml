@@ -1,0 +1,51 @@
+# Copy this file to config.yaml and replace the placeholder values before use.
+# Generate the CA files once with:
+#   modeltap ca-init --cert certs/modeltap-ca-cert.pem --key certs/modeltap-ca-key.pem
+
+proxy:
+  listen: 127.0.0.1:8080
+
+logging:
+  level: warn
+  # file: ./logs/modeltap.log
+
+tls:
+  ca_cert_file: ./certs/modeltap-ca-cert.pem
+  ca_key_file: ./certs/modeltap-ca-key.pem
+
+# Remove this section when OTLP metrics are not required.
+telemetry:
+  otlp:
+    endpoint: http://127.0.0.1:4318
+    service_name: modeltap
+
+# Use `direct` to connect to model APIs directly. To use an upstream proxy,
+# define it here and set `default` to its id.
+egress:
+  default: direct
+  proxies: []
+
+# `id` is the metric and pricing identity. ModelTap detects each site's request
+# and response protocol automatically.
+sites:
+  - id: openai
+    hosts: [api.openai.com, chatgpt.com]
+  - id: anthropic
+    hosts: [anthropic.com]
+  - id: gemini
+    hosts: [googleapis.com]
+  - id: deepseek
+    hosts: [api.deepseek.com]
+  - id: grok
+    hosts: [api.x.ai]
+  - id: cursor
+    hosts: [api2.cursor.sh]
+
+pricing:
+  timezone: Asia/Shanghai
+  # Add official per-million-token prices for the models you use.
+  # - site: openai
+  #   model: "gpt-*"
+  #   currency: USD
+  #   rates: {input: 1.25, output: 10, cache_read: 0.125}
+  rules: []

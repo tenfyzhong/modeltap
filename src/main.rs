@@ -1,4 +1,4 @@
-use modeltap::cli::{Command, VERSION, help_text, parse_arguments};
+use modeltap::cli::{Command, VERSION, help_text, parse_arguments, subcommand_help_text};
 use modeltap::config::Config;
 use modeltap::mitm::MitmAuthority;
 use modeltap::pricing::PriceBook;
@@ -6,12 +6,32 @@ use modeltap::telemetry::Telemetry;
 use std::sync::Arc;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     let arguments: Vec<String> = std::env::args().collect();
-    match parse_arguments(arguments)? {
-        Command::Help => {
-            println!("{}", help_text());
-            return Ok(());
+    let command = match parse_arguments(arguments) {
+        Ok(command) => command,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
+    };
+    if let Err(error) = execute(command).await {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+async fn execute(command: Command) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        Command::Help { subcommand } => {
+            println!(
+                "{}",
+                subcommand
+                    .as_deref()
+                    .and_then(subcommand_help_text)
+                    .unwrap_or_else(help_text)
+            );
+            Ok(())
         }
         Command::Version => {
             println!("modeltap {VERSION}");
@@ -26,14 +46,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             write_new(&key_file, authority.root_private_key_pem()?)?;
             return Ok(());
         }
+        Command::Validate { config_file } => validate(&config_file),
         Command::Run { config_file } => run(&config_file).await,
     }
+}
+
+fn validate(config_file: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let input = std::fs::read_to_string(config_file)?;
+    let config = Config::from_yaml(&input)?;
+    PriceBook::from_config(&config.pricing)?;
+    println!("configuration is valid: {config_file}");
+    Ok(())
 }
 
 async fn run(config_file: &str) -> Result<(), Box<dyn std::error::Error>> {
     let input = std::fs::read_to_string(config_file)?;
     let config = Arc::new(Config::from_yaml(&input)?);
-    modeltap::logging::init(config.logging.level);
+    modeltap::logging::init(&config.logging)?;
     let prices = Arc::new(PriceBook::from_config(&config.pricing)?);
     let telemetry = config
         .telemetry
