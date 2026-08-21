@@ -27,12 +27,54 @@ each client trust store, and protect the private key as a secret:
 make build
 mkdir -p certs
 ./target/debug/modeltap ca-init \
-  certs/modeltap-ca-cert.pem \
-  certs/modeltap-ca-key.pem
-./target/debug/modeltap run config.test.yaml
+  --cert certs/modeltap-ca-cert.pem \
+  --key certs/modeltap-ca-key.pem
+./target/debug/modeltap run --config config.test.yaml
+./target/debug/modeltap validate --config config.test.yaml
 ```
 
-The following is the local test configuration from `config.test.yaml`:
+Use `modeltap validate --config <CONFIG>` to check YAML syntax, site/egress validation,
+and pricing rules without binding a listener or reading certificate files.
+
+Shell completions are included in `completions/`. Load the appropriate file
+with `source completions/modeltap.bash`, `source completions/_modeltap`, or
+`source completions/modeltap.fish` for Bash, Zsh, or Fish respectively.
+
+### Node.js clients
+
+Node.js uses its own CA bundle and may not trust a locally installed ModelTap
+root CA. Before starting a Node.js client such as oh-my-pi, point
+`NODE_EXTRA_CA_CERTS` at the ModelTap CA certificate. Use an absolute path and
+restart the client (including any background daemon) after setting it:
+
+```shell
+export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
+export HTTP_PROXY=http://127.0.0.1:8080
+export HTTPS_PROXY=http://127.0.0.1:8080
+export PI_PROXY=http://127.0.0.1:8080
+omp
+```
+
+`PI_PROXY` routes all oh-my-pi providers through ModelTap. Provider-specific
+variables override it. For example, use `PI_PROXY_CURSOR` when Cursor needs a
+different proxy endpoint:
+
+```shell
+export PI_PROXY_CURSOR=http://127.0.0.1:8080
+```
+
+oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting
+`PI_PROXY` (or its `PI_PROXY_CURSOR` override) ensures Cursor models, including
+Grok, reach ModelTap. For fish, use `set -x PI_PROXY http://127.0.0.1:8080`
+(and set `NODE_EXTRA_CA_CERTS` similarly).
+Without this setting, MITM requests can fail certificate verification and some
+clients may misleadingly report that their Google API key or OAuth credential is
+missing.
+
+Copy [`config.sample.yaml`](config.sample.yaml) before first use, then adjust its
+certificate paths, telemetry endpoint, egress proxy, sites, and pricing rules.
+`config.test.yaml` is maintained for automated tests and is not the starting
+point for a deployment. The following shows the equivalent local configuration:
 
 ```yaml
 proxy:
@@ -58,26 +100,24 @@ egress:
 
 sites:
   - id: openai
-    provider: openai
     hosts:
       - chatgpt.com
-    mitm: true
   - id: anthropic
-    provider: anthropic
     hosts:
       - anthropic.com
-    mitm: true
   - id: gemini
-    provider: gemini
     hosts:
       - googleapis.com
-    mitm: true
   - id: deepseek
-    provider: deepseek
     hosts:
       - api.deepseek.com
-    mitm: true
     egress: direct
+  - id: grok
+    hosts:
+      - api.x.ai
+  - id: cursor
+    hosts:
+      - api2.cursor.sh
 
 pricing:
   timezone: Asia/Shanghai
@@ -168,7 +208,24 @@ pricing:
 
 With this configuration, OpenAI, Anthropic, and Gemini use the default Privoxy
 egress at `127.0.0.1:8118`. DeepSeek overrides the default with
-`egress: direct` and never uses Privoxy.
+`egress: direct` and never uses Privoxy. Grok uses the OpenAI-compatible API at
+`api.x.ai`; Cursor uses `api2.cursor.sh`.
+
+### Sites and protocol detection
+
+`id` is the site identity used in metric labels and `pricing.rules`; use the
+actual service/vendor name, such as `grok`, `cursor`, or `openai`. ModelTap
+detects the usage protocol from each request or response automatically, so site
+configuration does not need a `provider` or `provider_type` field. It recognizes
+Cursor Connect/Protobuf, Gemini usage metadata, Anthropic message events, and
+OpenAI Chat/Responses payloads. A DeepSeek site can therefore report both its
+OpenAI-compatible and Anthropic-compatible traffic without any special setting.
+
+Every host configured under `sites` is always intercepted with TLS MITM. This
+makes `sites` the explicit allowlist of traffic that ModelTap can inspect. Hosts
+absent from `sites` are forwarded without MITM and no usage is collected. Remove
+the former `provider`, `provider_type`, and `mitm` fields when migrating an
+existing configuration.
 
 Each `hosts` entry is a domain root. It matches the configured domain itself and
 all of its subdomains at a DNS label boundary. For example,
@@ -182,9 +239,17 @@ The inbound proxy does not require client authentication, including when
 listener must be protected with a host firewall, private network, or another
 trusted access-control layer to avoid operating an open proxy.
 
-The library exposes provider-aware usage parsers for OpenAI
-Chat/Responses/Embeddings, Anthropic, Gemini, and DeepSeek. Pricing uses decimal
-arithmetic and daily peak/off-peak windows in the configured IANA timezone.
+The library automatically detects usage protocols for OpenAI
+Chat/Responses/Embeddings, Anthropic, Gemini, DeepSeek, and Cursor Agent.
+Cursor Agent traffic uses Connect/Protobuf: ModelTap reads the selected model ID
+from each request, so Cursor models such as GPT, Claude, Grok, GLM, Gemini, and
+Composer are reported without a model allowlist. Cursor reports generated-token
+increments; configure `pricing.rules` for `site: cursor` when you want costs.
+Pricing uses decimal arithmetic and daily peak/off-peak windows in the configured IANA timezone.
+DeepSeek accepts both its native OpenAI-compatible responses and the Anthropic
+compatible streaming responses used by Claude Code. Usage metrics include an
+`agent_cli` attribute inferred from client headers (`claude_code`, `codex`,
+`gemini_cli`, `oh_my_pi`, `opencode`, or `unknown`).
 
 Use a single `rates` block for a model whose prices do not vary by time. These
 rules can coexist with global `peak_windows` used by other models:
@@ -215,16 +280,19 @@ response chunk:
 ```yaml
 logging:
   level: debug
+  # file: ./logs/modeltap.log
 ```
 
 Body previews are capped at 4 KiB per chunk and authentication headers are never
-logged. Debug output can still include prompt and model-response content; enable
-it only in a trusted environment.
+logged. Set `logging.file` to append the same logs to a file while retaining
+stderr output; ModelTap creates the file but not its parent directory. Debug
+output can still include prompt and model-response content; enable it only in a
+trusted environment.
 
 When `telemetry.otlp` is set, usage events are exported through OTLP/HTTP to
 `<endpoint>/v1/metrics`. The exported metrics are `ai_proxy_requests`,
 `ai_proxy_tokens`, and `ai_proxy_cost`; labels are limited to `site`,
-`provider`, `model`, token type, price period, and currency.
+`model`, `agent_cli`, token type, price period, and currency.
 
 For an end-to-end Grafana Cloud setup—including installing Grafana Alloy on
 macOS or Linux, creating a least-privilege Cloud Access Policy token,

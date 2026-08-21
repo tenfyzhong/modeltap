@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing Git tag to publish as a Docker image
+        description: Existing Git tag to publish as a Docker image and GitHub Release
         required: true
         type: string
 
@@ -112,17 +112,68 @@ jobs:
             "$IMAGE_REPOSITORY:$IMAGE_TAG-amd64" \
             "$IMAGE_REPOSITORY:$IMAGE_TAG-arm64"
 
+  build-release-binaries:
+    needs: resolve-tags
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Install Rust 1.85
+        uses: dtolnay/rust-toolchain@1.85
+
+      - name: Build release binary
+        run: cargo build --locked --release --target "${{ matrix.target }}"
+
+      - name: Package release binary
+        env:
+          RELEASE_TAG: ${{ needs.resolve-tags.outputs.release }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p dist
+          tar -C "target/$TARGET/release" -czf "dist/modeltap-${RELEASE_TAG}-${TARGET}.tar.gz" modeltap
+
+      - name: Upload release binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: modeltap-${{ matrix.target }}
+          path: dist/modeltap-*.tar.gz
+          if-no-files-found: error
+
   publish-release:
-    if: github.event_name == 'push'
-    needs: publish-manifest
+    needs:
+      - resolve-tags
+      - publish-manifest
+      - build-release-binaries
     permissions:
       contents: write
     runs-on: ubuntu-latest
     steps:
+      - name: Download release binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: modeltap-*
+          path: dist
+          merge-multiple: true
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.resolve-tags.outputs.release }}
         run: |
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "GitHub release '$RELEASE_TAG' already exists"
@@ -133,3 +184,9 @@ jobs:
               --generate-notes \
               --title "$RELEASE_TAG"
           fi
+
+      - name: Upload release binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve-tags.outputs.release }}
+        run: gh release upload "$RELEASE_TAG" dist/*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber

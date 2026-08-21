@@ -1,0 +1,12 @@
+complete -c modeltap -f
+complete -c modeltap -n '__fish_use_subcommand' -a run -d 'Start the proxy'
+complete -c modeltap -n '__fish_use_subcommand' -a validate -d 'Validate a YAML configuration file'
+complete -c modeltap -n '__fish_use_subcommand' -a ca-init -d 'Create a local root CA'
+complete -c modeltap -n '__fish_use_subcommand' -a help -d 'Print help text'
+complete -c modeltap -n '__fish_seen_subcommand_from run' -s c -l config -r -F -d 'Configuration file'
+complete -c modeltap -n '__fish_seen_subcommand_from run' -s h -l help -d 'Print help'
+complete -c modeltap -n '__fish_seen_subcommand_from validate' -s c -l config -r -F -d 'Configuration file'
+complete -c modeltap -n '__fish_seen_subcommand_from validate' -s h -l help -d 'Print help'
+complete -c modeltap -n '__fish_seen_subcommand_from ca-init' -l cert -r -F -d 'Certificate file'
+complete -c modeltap -n '__fish_seen_subcommand_from ca-init' -l key -r -F -d 'Private-key file'
+complete -c modeltap -n '__fish_seen_subcommand_from ca-init' -s h -l help -d 'Print help'

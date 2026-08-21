@@ -1,0 +1,28 @@
+#compdef modeltap
+
+_modeltap() {
+  local -a commands
+  commands=(
+    'run:Start the proxy'
+    'validate:Validate a YAML configuration file'
+    'ca-init:Create a local root CA'
+    'help:Print help text'
+  )
+
+  case $words[2] in
+    run)
+      _arguments '-c[Configuration file]:configuration file:_files' '--config[Configuration file]:configuration file:_files' '-h[Print help]' '--help[Print help]'
+      ;;
+    validate)
+      _arguments '-c[Configuration file]:configuration file:_files' '--config[Configuration file]:configuration file:_files' '-h[Print help]' '--help[Print help]'
+      ;;
+    ca-init)
+      _arguments '--cert[Certificate file]:certificate file:_files' '--key[Private-key file]:private-key file:_files' '-h[Print help]' '--help[Print help]'
+      ;;
+    *)
+      _describe 'command' commands
+      ;;
+  esac
+}
+
+_modeltap "$@"

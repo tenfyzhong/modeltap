@@ -19,18 +19,51 @@
 <body>
 <main>
   <h1>ModelTap</h1>
-  <p>ModelTap is a Rust explicit proxy for selected AI API traffic. It supports TLS MITM, direct or cascading GOST/HTTP/HTTPS/SOCKS5 egress, OpenAI/Anthropic/Gemini/DeepSeek usage parsing, configurable peak pricing, and OTLP metrics through Grafana Alloy.</p>
+  <p>ModelTap monitors AI model usage, token consumption, and estimated cost, then exports those measurements through OTLP/HTTP to observability systems such as Grafana Alloy and Grafana Cloud. It is a Rust explicit proxy with TLS MITM for configured hosts, direct or cascading HTTP/HTTPS/SOCKS5 egress, automatic usage-protocol detection, and configurable model pricing.</p>
   <p>HTTP, SSE, and long-lived WebSocket traffic are forwarded as a stream. For Codex WebSockets, ModelTap observes OpenAI Responses usage events and side-decompresses negotiated <code>permessage-deflate</code> frames without changing the original handshake or forwarded frames.</p>
-  <nav><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#config">Configuration</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
+  <nav><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#node">Node.js</a><a href="#config">Configuration</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
+
+  <h2 id="architecture">Architecture</h2>
+  <h3>ModelTap request path</h3>
+  <pre><code>AI client / CLI
+  │  HTTP_PROXY, HTTPS_PROXY, or PI_PROXY
+  ▼
+ModelTap explicit proxy
+  ├─ CONNECT host is absent from sites ──► transparent tunnel ──► upstream API
+  └─ CONNECT host matches a site
+       │
+       ├─ TLS MITM and HTTP/1.1 or HTTP/2 forwarding ──────────► upstream API
+       ├─ SSE / WebSocket / Cursor Connect side parser
+       │    └─ detects protocol and extracts model and token usage
+       └─ UsageObserver
+            ├─ PriceBook: site + model + current pricing window
+            ├─ structured usage log
+            └─ Telemetry counters and latency histograms</code></pre>
+  <p><code>sites</code> is the inspection allowlist. A matching host is always decrypted with the local CA; unmatched hosts are forwarded transparently and do not produce usage data. Protocol detection is internal to parsing and is not a configuration field or a metric label. The proxy forwards request and response streams without waiting for full bodies; parsing observes copies of SSE events, WebSocket text frames, and Cursor Connect messages.</p>
+
+  <h3>Usage and cost reporting path</h3>
+  <pre><code>UsageObserver
+  │  tokens + configured price rule
+  ▼
+OpenTelemetry metrics in ModelTap
+  │  OTLP/HTTP POST to &lt;telemetry.otlp.endpoint&gt;/v1/metrics
+  ▼
+Grafana Alloy OTLP receiver
+  │  Prometheus remote_write
+  ▼
+Grafana Cloud Prometheus ──► Explore and ModelTap dashboard</code></pre>
+  <p>ModelTap emits the cumulative counters <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>, plus proxy and telemetry latency histograms. Usage counter labels are <code>site</code>, <code>model</code>, <code>agent_cli</code>, token <code>type</code>, <code>price_period</code>, and <code>currency</code> where applicable. The client response path does not wait for remote write: the OTLP SDK batches exports in the background. In Grafana, select data in the order <code>Agent CLI → Site → Model</code>.</p>
 
   <h2 id="start">Quick start</h2>
   <pre><code>make build
 mkdir -p certs
 ./target/debug/modeltap ca-init \
-  certs/modeltap-ca-cert.pem \
-  certs/modeltap-ca-key.pem
-./target/debug/modeltap run config.test.yaml</code></pre>
-  <p>Set your browser, CLI, or SDK HTTP proxy to <code>http://127.0.0.1:8080</code>. Only hosts with <code>mitm: true</code> are decrypted; other CONNECT tunnels remain transparent.</p>
+  --cert certs/modeltap-ca-cert.pem \
+  --key certs/modeltap-ca-key.pem
+./target/debug/modeltap run --config config.sample.yaml
+./target/debug/modeltap validate --config config.sample.yaml</code></pre>
+  <p>Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code>; source <code>modeltap.bash</code>, <code>_modeltap</code>, or <code>modeltap.fish</code> for Bash, Zsh, or Fish.</p>
+  <p>Set your browser, CLI, or SDK HTTP proxy to <code>http://127.0.0.1:8080</code>. Every host configured under <code>sites</code> is decrypted; other CONNECT tunnels remain transparent.</p>
   <p>Each <code>hosts</code> entry is a domain root and includes all subdomains at a DNS label boundary. For example, <code>googleapis.com</code> includes <code>generativelanguage.googleapis.com</code>, but does not match <code>notgoogleapis.com</code>. Overlapping domain trees across sites are rejected.</p>
   <p>The inbound proxy does not require client authentication, including on a non-loopback listener such as <code>0.0.0.0:8080</code>. Protect non-loopback listeners with a host firewall, private network, or another trusted access-control layer to avoid running an open proxy.</p>
 
@@ -41,13 +74,23 @@ mkdir -p certs
   https://api.openai.com/v1/models</code></pre>
   <p>A 401 response confirms that interception and forwarding work; it only means that no API key was supplied.</p>
 
+  <h2 id="node">Node.js clients and oh-my-pi</h2>
+  <p>Node.js uses its own CA bundle and may not trust a locally installed ModelTap root CA. Set <code>NODE_EXTRA_CA_CERTS</code> to the absolute path of the ModelTap CA, then restart the client or background daemon:</p>
+  <pre><code>export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
+export HTTP_PROXY=http://127.0.0.1:8080
+export HTTPS_PROXY=http://127.0.0.1:8080
+export PI_PROXY=http://127.0.0.1:8080
+omp</code></pre>
+  <p><code>PI_PROXY</code> routes all oh-my-pi providers through ModelTap. A provider-specific variable overrides it; use <code>PI_PROXY_CURSOR</code> when Cursor needs another proxy endpoint. oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent traffic, so <code>PI_PROXY</code> or <code>PI_PROXY_CURSOR</code> is required for Cursor models, including Grok, to reach ModelTap. In Fish, use <code>set -x PI_PROXY http://127.0.0.1:8080</code> and set <code>NODE_EXTRA_CA_CERTS</code> similarly.</p>
+
   <h2 id="config">Configuration</h2>
-  <p>This example is synchronized with <code>config.test.yaml</code>. OpenAI, Anthropic, and Gemini use Privoxy at <code>127.0.0.1:8118</code>; DeepSeek explicitly uses the direct egress and never uses Privoxy.</p>
+  <p>Copy <code>config.sample.yaml</code> before first use and adjust its certificate paths, telemetry endpoint, egress proxy, sites, and pricing rules. <code>config.test.yaml</code> is maintained for automated tests and is not a deployment starting point. The following is the equivalent local configuration. OpenAI, Anthropic, and Gemini use Privoxy at <code>127.0.0.1:8118</code>; DeepSeek explicitly uses the direct egress and never uses Privoxy.</p>
   <pre><code>proxy:
   listen: 127.0.0.1:8080
 
 logging:
   level: info
+  # file: ./logs/modeltap.log
 
 tls:
   ca_cert_file: ./certs/modeltap-ca-cert.pem
@@ -66,26 +109,24 @@ egress:
 
 sites:
   - id: openai
-    provider: openai
     hosts:
       - chatgpt.com
-    mitm: true
   - id: anthropic
-    provider: anthropic
     hosts:
       - anthropic.com
-    mitm: true
   - id: gemini
-    provider: gemini
     hosts:
       - googleapis.com
-    mitm: true
   - id: deepseek
-    provider: deepseek
     hosts:
       - api.deepseek.com
-    mitm: true
     egress: direct
+  - id: grok
+    hosts:
+      - api.x.ai
+  - id: cursor
+    hosts:
+      - api2.cursor.sh
 
 pricing:
   timezone: Asia/Shanghai
@@ -172,14 +213,20 @@ pricing:
         input: 0.667832526
         output: 2.003497577
         cache_read: 0.022261084</code></pre>
-  <p>Rates are per million tokens. Peak windows use the configured IANA timezone, may cross midnight, and must not overlap. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
+  <p>With this configuration, Grok uses the OpenAI-compatible API at <code>api.x.ai</code> and Cursor uses <code>api2.cursor.sh</code>. Rates are per million tokens. Peak windows use the configured IANA timezone, may cross midnight, and must not overlap. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
   <pre><code>rates:
   input: 0.02
   output: 0</code></pre>
 
+  <h2 id="sites">Sites and protocol detection</h2>
+  <p>A site <code>id</code> is the service identity used in metric labels and <code>pricing.rules</code>; use the actual vendor or service name, such as <code>grok</code>, <code>cursor</code>, or <code>openai</code>. ModelTap detects the usage protocol from each request or response automatically. Site configuration therefore has no <code>provider</code> or <code>provider_type</code> field. It recognizes Cursor Connect/Protobuf, Gemini usage metadata, Anthropic message events, and OpenAI Chat/Responses payloads. A DeepSeek site can report both OpenAI-compatible and Anthropic-compatible traffic without any special setting.</p>
+  <p>Every host configured under <code>sites</code> is intercepted with TLS MITM. This makes <code>sites</code> the explicit allowlist of traffic that ModelTap can inspect. Hosts absent from <code>sites</code> are forwarded without MITM and no usage is collected. Remove the former <code>provider</code>, <code>provider_type</code>, and <code>mitm</code> fields when migrating an existing configuration.</p>
+  <p>Cursor Agent traffic uses Connect/Protobuf. ModelTap reads the selected model ID from each request, so Cursor models such as GPT, Claude, Grok, GLM, Gemini, and Composer are reported without a model allowlist. Cursor reports generated-token increments; configure <code>pricing.rules</code> for <code>site: cursor</code> when you want costs. The <code>agent_cli</code> metric label is inferred from client headers: <code>claude_code</code>, <code>codex</code>, <code>gemini_cli</code>, <code>oh_my_pi</code>, <code>opencode</code>, or <code>unknown</code>.</p>
+
   <h2 id="logging">Logging</h2>
-  <p>Supported levels are <code>error</code>, <code>warn</code>, <code>info</code>, <code>debug</code>, and <code>trace</code>. At <code>info</code>, every parsed usage report logs its site, provider, model, token totals, pricing period, and calculated cost. Set <code>logging.level: debug</code> to also log routing decisions, response status, SSE detection, WebSocket frame bytes, and bounded request and response body previews.</p>
-  <div class="note">Debug previews are limited to 4 KiB per chunk and authentication headers are removed before forwarding, but prompt and model-response content can still appear in logs. Enable debug logging only in a trusted environment.</div>
+  <p>Supported levels are <code>error</code>, <code>warn</code>, <code>info</code>, <code>debug</code>, and <code>trace</code>. At <code>info</code>, every parsed usage report logs its site, model, token totals, pricing period, and calculated cost. Set <code>logging.level: debug</code> to also log routing decisions, response status, SSE detection, WebSocket frame bytes, and bounded request and response body previews.</p>
+  <p>Set <code>logging.file</code> to append the same logs to a file while retaining stderr output. ModelTap creates the file but not its parent directory.</p>
+  <div class="note">Debug previews are limited to 4 KiB per chunk and authentication headers are never logged, but prompt and model-response content can still appear in logs. Enable debug logging only in a trusted environment.</div>
 
   <h2 id="alloy">Grafana Alloy</h2>
   <p>Alloy receives ModelTap metrics over OTLP/HTTP and forwards them to Grafana Cloud with Prometheus remote write. ModelTap posts to <code>&lt;telemetry.otlp.endpoint&gt;/v1/metrics</code>.</p>
@@ -260,7 +307,7 @@ sudo systemctl restart alloy
 sudo journalctl -u alloy -f</code></pre>
   <p>Open <code>http://127.0.0.1:12345</code> and confirm that all Alloy components are healthy. Then start ModelTap, send one request through the proxy, and query <code>ai_proxy_requests</code> in Grafana Cloud <strong>Explore</strong> using the stack's Prometheus data source. Metrics can take a short time to appear because the OTLP SDK batches exports.</p>
   <p>For a host installation of ModelTap, keep <code>telemetry.otlp.endpoint: http://127.0.0.1:4318</code>. The included Docker configuration already uses <code>http://host.docker.internal:4318</code> so a ModelTap container can reach Alloy running on a Docker Desktop host.</p>
-  <p>Usage metrics are <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>. Labels are limited to site, provider, model, token type, pricing period, and currency.</p>
+  <p>Usage metrics are <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>. Labels are limited to site, model, agent CLI, token type, pricing period, and currency.</p>
 
   <h2>Telemetry overhead and latency</h2>
   <p>Two additional OTLP histograms quantify proxy latency: <code>ai_proxy_upstream_first_response_seconds</code> measures the time from a proxied request reaching ModelTap until upstream response headers arrive, while <code>ai_proxy_telemetry_record_duration_seconds</code> measures local usage-metric recording time. The latter does not include network export time: the OTLP SDK batches export on its periodic exporter instead of waiting in the user response path.</p>
@@ -272,18 +319,19 @@ sudo journalctl -u alloy -f</code></pre>
   <p>Generate the CA files on the host before starting the container:</p>
   <pre><code>mkdir -p certs
 ./target/debug/modeltap ca-init \
-  certs/modeltap-ca-cert.pem \
-  certs/modeltap-ca-key.pem
+  --cert certs/modeltap-ca-cert.pem \
+  --key certs/modeltap-ca-key.pem
 docker compose up --build -d
 docker compose logs -f modeltap</code></pre>
   <p>The included Compose configuration binds the proxy to host port 8080, mounts both CA files read-only, and uses <code>host.docker.internal</code> to access GOST on port 1081 and Alloy on port 4318 from Docker Desktop on macOS. Install the CA certificate in each client trust store; do not install or distribute the private key. In production, use Docker Secrets, Kubernetes Secrets, or a secret manager for the CA key.</p>
 
   <h2 id="grafana">Grafana Cloud</h2>
   <p>After <code>ai_proxy_requests</code> appears in Explore, open <strong>Dashboards → New → Import</strong>, upload <code>grafana/modeltap-dashboard.json</code>, and select the same Prometheus data source. Click <strong>Import</strong> to create the ModelTap dashboard. Re-import with the same dashboard UID to overwrite an older copy after the JSON changes.</p>
-  <p>The dashboard reads cumulative counters so the first exported usage sample is visible immediately. Token charts and tables group data by <code>site</code>, <code>model</code>, and <code>type</code> and abbreviate large values as K, M, or B. Cost is displayed in USD and grouped by <code>site</code> and <code>model</code>.</p>
+  <p>The dashboard reads cumulative counters so the first exported usage sample is visible immediately. Its variables are ordered <code>Agent CLI</code>, <code>Site</code>, and <code>Model</code>, with each selection filtering the following ones. Cumulative token and cost charts group data by <code>agent_cli</code>, <code>site</code>, <code>model</code>, and <code>type</code>; token values abbreviate large values as K, M, or B. Cost is displayed in USD.</p>
 
-  <h2>Docker Hub releases</h2>
-  <p>Pushing any Git tag triggers the release workflow. Configure repository secrets <code>DOCKERHUB_USERNAME</code> and <code>DOCKERHUB_TOKEN</code>. The workflow builds and pushes separate <code>linux/amd64</code> and <code>linux/arm64</code> images with <code>-amd64</code> and <code>-arm64</code> suffixes, then publishes multi-architecture manifests for the version (without a leading <code>v</code>) and <code>latest</code>. It creates the GitHub Release only after the manifest publish succeeds. A tag whose version cannot be used as a Docker tag fails before publishing.</p>
+  <h2>Docker Hub and binary releases</h2>
+  <p>Pushing a Git tag, or manually dispatching the workflow for an existing tag, publishes Docker images and creates or updates the matching GitHub Release. Configure repository secrets <code>DOCKERHUB_USERNAME</code> and <code>DOCKERHUB_TOKEN</code>. The workflow builds separate <code>linux/amd64</code> and <code>linux/arm64</code> images with <code>-amd64</code> and <code>-arm64</code> suffixes, then publishes multi-architecture manifests for the version (without a leading <code>v</code>) and <code>latest</code>.</p>
+  <p>The GitHub Release also contains four compressed standalone binaries: <code>modeltap-&lt;tag&gt;-x86_64-apple-darwin.tar.gz</code>, <code>modeltap-&lt;tag&gt;-aarch64-apple-darwin.tar.gz</code>, <code>modeltap-&lt;tag&gt;-x86_64-unknown-linux-gnu.tar.gz</code>, and <code>modeltap-&lt;tag&gt;-aarch64-unknown-linux-gnu.tar.gz</code>. A tag whose version cannot be used as a Docker tag fails before publishing.</p>
   <p>The same tag also runs the Homebrew workflow, which opens or updates a Formula bump PR for <code>modeltap</code> in the <code>tenfyzhong/tap</code> tap. Set the <code>HOMEBREW_TAP_TOKEN</code> repository secret to a GitHub token that can create pull requests in <code>tenfyzhong/homebrew-tap</code>. Create <code>Formula/modeltap.rb</code> in that tap before publishing the first tag.</p>
 
   <h2 id="security">Security</h2>

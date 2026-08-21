@@ -1,37 +1,34 @@
 use crate::config::{Config, SiteConfig};
-use crate::egress::{EgressConnector, EgressError, UpstreamStream};
+use crate::egress::EgressConnector;
 use crate::logging::{BODY_PREVIEW_LIMIT, body_preview};
 use crate::mitm::MitmAuthority;
 use crate::pricing::PriceBook;
 use crate::telemetry::Telemetry;
 use crate::usage::{
-    Provider, StreamUsageParser, WebSocketUsageParser,
+    AutoStreamUsageParser, CursorUsageParser, WebSocketUsageParser, auto_parse_json,
     permessage_deflate_server_no_context_takeover,
 };
 use bytes::Bytes;
-use http::header::{CONNECTION, HOST, PROXY_AUTHORIZATION, SEC_WEBSOCKET_EXTENSIONS, UPGRADE};
+use http::header::{
+    CONNECTION, HOST, PROXY_AUTHORIZATION, SEC_WEBSOCKET_EXTENSIONS, UPGRADE, USER_AGENT,
+};
 use http::{HeaderValue, Request, Response, Uri};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::service::service_fn;
-use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as ServerBuilder;
 use std::convert::Infallible;
-use std::future::Future;
 use std::io;
-use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
-use tower_service::Service;
-use tracing::debug;
+use tracing::{debug, warn};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type ProxyBody = BoxBody<Bytes, BoxError>;
@@ -120,12 +117,12 @@ async fn handle_connection_with_telemetry(
     debug!(
         target = target,
         site = site.map(|site| site.id.as_str()).unwrap_or("unconfigured"),
-        mitm = site.is_some_and(|site| site.mitm),
+        mitm = site.is_some(),
         "processing CONNECT request"
     );
-    if site.is_some_and(|site| site.mitm) {
+    if site.is_some() {
         let mitm_authority = mitm_authority.ok_or_else(|| {
-            ProxyError::Egress("a MITM authority is required for a MITM-enabled site".to_owned())
+            ProxyError::Egress("a MITM authority is required for a configured site".to_owned())
         })?;
         let host = authority.host().to_owned();
         let upstream_base = format!("https://{target}")
@@ -145,14 +142,11 @@ async fn handle_connection_with_telemetry(
         .map_err(|error| ProxyError::Request(format!("MITM TLS handshake failed: {error}")))?;
         debug!(target = target, "MITM TLS handshake completed");
         let observer = site.and_then(|site| {
-            telemetry.as_ref().and_then(|telemetry| {
-                Provider::from_config(&site.provider).map(|provider| UsageObserver {
-                    telemetry: telemetry.clone(),
-                    prices,
-                    site: site.id.clone(),
-                    provider_name: site.provider.clone(),
-                    provider,
-                })
+            telemetry.as_ref().map(|telemetry| UsageObserver {
+                telemetry: telemetry.clone(),
+                prices,
+                site: site.id.clone(),
+                agent_cli: "unknown".to_owned(),
             })
         });
         return serve_mitm_connection(tls, upstream_base, connector, observer).await;
@@ -199,22 +193,11 @@ pub async fn serve_mitm_connection<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    let client: Client<_, ProxyBody> =
-        Client::builder(TokioExecutor::new()).build(RoutedConnector {
-            egress: egress.clone(),
-            http1_only: false,
-        });
-    let websocket_client: Client<_, ProxyBody> =
-        Client::builder(TokioExecutor::new()).build(RoutedConnector {
-            egress,
-            http1_only: true,
-        });
     let service = service_fn(move |request| {
         forward_mitm_request(
             request,
             upstream_base.clone(),
-            client.clone(),
-            websocket_client.clone(),
+            egress.clone(),
             observer.clone(),
         )
     });
@@ -227,8 +210,7 @@ where
 async fn forward_mitm_request(
     mut request: Request<Incoming>,
     upstream_base: Uri,
-    client: Client<RoutedConnector, ProxyBody>,
-    websocket_client: Client<RoutedConnector, ProxyBody>,
+    egress: EgressConnector,
     observer: Option<UsageObserver>,
 ) -> Result<Response<ProxyBody>, Infallible> {
     let path_and_query = request
@@ -264,11 +246,43 @@ async fn forward_mitm_request(
     }
     let method = request.method().clone();
     let target = request.uri().clone();
+    let is_cursor_connect = request
+        .headers()
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/connect+proto"));
+    let is_oh_my_pi_cursor_request = is_cursor_connect
+        && request
+            .headers()
+            .get("x-ghost-mode")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value == "true");
+    let is_oh_my_pi_cursor_cli_request = is_cursor_connect
+        && request
+            .headers()
+            .get("x-cursor-client-type")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.eq_ignore_ascii_case("cli"));
+    let agent_cli = agent_cli(
+        request
+            .headers()
+            .get(USER_AGENT)
+            .and_then(|value| value.to_str().ok()),
+        is_oh_my_pi_cursor_request,
+        is_oh_my_pi_cursor_cli_request,
+    );
+    let observer = observer.map(|mut observer| {
+        observer.agent_cli = agent_cli;
+        observer
+    });
+    let cursor_usage = is_cursor_connect.then(|| Arc::new(Mutex::new(CursorUsageParser::new())));
+    let cursor_request_observer = is_cursor_connect.then_some(observer.clone()).flatten();
     let upgrade_requested = websocket_upgrade_requested(&request);
     let client_upgrade = upgrade_requested.then(|| hyper::upgrade::on(&mut request));
     debug!(method = %method, target = %target, "forwarding MITM HTTP request");
     let request_method = method.clone();
     let request_target = target.clone();
+    let cursor_request_parser = cursor_usage.clone();
     let request = request.map(move |body| {
         body.map_frame(move |frame| {
             if let Some(data) = frame.data_ref() {
@@ -279,6 +293,19 @@ async fn forward_mitm_request(
                     content = %body_preview(data, BODY_PREVIEW_LIMIT),
                     "processing request body chunk"
                 );
+                if let (Some(parser), Some(observer)) = (
+                    cursor_request_parser.as_ref(),
+                    cursor_request_observer.as_ref(),
+                ) {
+                    if let Ok(mut parser) = parser.lock() {
+                        if let Some(model) = parser.push_request(data) {
+                            if !parser.request_reported() {
+                                parser.mark_request_reported();
+                                observer.record(&model, &crate::usage::TokenUsage::default());
+                            }
+                        }
+                    }
+                }
             }
             frame
         })
@@ -286,17 +313,11 @@ async fn forward_mitm_request(
         .boxed()
     });
     let request_started = Instant::now();
-    let forwarding_client = if upgrade_requested {
-        websocket_client
-    } else {
-        client
-    };
-    match forwarding_client.request(request).await {
+    match send_upstream_request(&egress, request, upgrade_requested).await {
         Ok(mut response) => {
             if let Some(observer) = observer.as_ref() {
                 observer.telemetry.record_response_duration(
                     &observer.site,
-                    &observer.provider_name,
                     request_started.elapsed().as_secs_f64(),
                 );
             }
@@ -344,14 +365,14 @@ async fn forward_mitm_request(
                     });
                 }
             }
-            let mut parser = observer.clone().filter(|_| is_sse).map(|observer| {
-                (
-                    observer.provider,
-                    StreamUsageParser::new(observer.provider),
-                    observer,
-                )
-            });
-            let direct_observer = (!is_sse).then_some(observer).flatten();
+            let mut parser = observer
+                .clone()
+                .filter(|_| is_sse)
+                .map(|observer| (AutoStreamUsageParser::new(), observer));
+            let cursor_observer = is_cursor_connect.then_some(observer.clone()).flatten();
+            let direct_observer = (!is_sse && !is_cursor_connect)
+                .then_some(observer)
+                .flatten();
             let mut direct_recorded = false;
             Ok(response.map(move |body| {
                 body.map_frame(move |frame| {
@@ -362,18 +383,34 @@ async fn forward_mitm_request(
                             "processing response body chunk"
                         );
                     }
-                    if let (Some((_, stream, observer)), Some(data)) =
+                    if let (Some((stream, observer)), Some(data)) =
                         (parser.as_mut(), frame.data_ref())
                     {
-                        if let Some(usage) = stream.push(data) {
+                        if let Some((_protocol, usage)) = stream.push(data) {
                             observer
                                 .record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                        }
+                    } else if let (Some(parser), Some(observer), Some(data)) = (
+                        cursor_usage.as_ref(),
+                        cursor_observer.as_ref(),
+                        frame.data_ref(),
+                    ) {
+                        if let Ok(mut parser) = parser.lock() {
+                            if let Some(usage) = parser.push_response(data) {
+                                let model = usage.model.as_deref().unwrap_or("unknown");
+                                if parser.request_reported() {
+                                    observer.record_tokens(model, &usage.tokens);
+                                } else {
+                                    parser.mark_request_reported();
+                                    observer.record(model, &usage.tokens);
+                                }
+                            }
                         }
                     } else if let (Some(observer), Some(data)) =
                         (direct_observer.as_ref(), frame.data_ref())
                     {
                         if !direct_recorded {
-                            if let Some(usage) = observer.provider.parse_json(data) {
+                            if let Some((_protocol, usage)) = auto_parse_json(data) {
                                 observer.record(
                                     usage.model.as_deref().unwrap_or("unknown"),
                                     &usage.tokens,
@@ -389,13 +426,57 @@ async fn forward_mitm_request(
             }))
         }
         Err(error) => {
-            debug!(method = %method, target = %target, error = %error, "MITM upstream request failed");
+            warn!(method = %method, target = %target, error = %error, "MITM upstream request failed");
             Ok(error_response(
                 http::StatusCode::BAD_GATEWAY,
                 "upstream connection failed",
             ))
         }
     }
+}
+
+async fn send_upstream_request(
+    egress: &EgressConnector,
+    mut request: Request<ProxyBody>,
+    force_http1: bool,
+) -> Result<Response<Incoming>, BoxError> {
+    let uri = request.uri().clone();
+    let stream = if force_http1 {
+        egress.connect_uri_http1(&uri).await?
+    } else {
+        egress.connect_uri(&uri).await?
+    };
+    if !force_http1 && stream.negotiated_h2() {
+        *request.version_mut() = http::Version::HTTP_2;
+        request.headers_mut().remove(HOST);
+        let (mut sender, connection) =
+            hyper::client::conn::http2::Builder::new(TokioExecutor::new())
+                .handshake(TokioIo::new(stream))
+                .await?;
+        tokio::spawn(async move {
+            if let Err(error) = connection.await {
+                debug!(error = %error, "HTTP/2 upstream connection failed");
+            }
+        });
+        return sender.send_request(request).await.map_err(box_error);
+    }
+
+    *request.version_mut() = http::Version::HTTP_11;
+    let path_and_query = request
+        .uri()
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/");
+    *request.uri_mut() = Uri::builder().path_and_query(path_and_query).build()?;
+    let (mut sender, connection) =
+        hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
+    let connection = connection.with_upgrades();
+    tokio::spawn(async move {
+        if let Err(error) = connection.await {
+            debug!(error = %error, "HTTP/1.1 upstream connection failed");
+        }
+    });
+    sender.send_request(request).await.map_err(box_error)
 }
 
 async fn tunnel_websocket<C, U>(
@@ -417,11 +498,10 @@ where
     let upstream_to_client = async move {
         let mut parser = observer.clone().map(|observer| {
             let parser = match permessage_deflate {
-                Some(server_no_context_takeover) => WebSocketUsageParser::with_permessage_deflate(
-                    observer.provider,
-                    server_no_context_takeover,
-                ),
-                None => WebSocketUsageParser::new(observer.provider),
+                Some(server_no_context_takeover) => {
+                    WebSocketUsageParser::with_permessage_deflate(server_no_context_takeover)
+                }
+                None => WebSocketUsageParser::new(),
             };
             (parser, observer)
         });
@@ -438,7 +518,7 @@ where
                 "processing WebSocket server frame bytes"
             );
             if let Some((parser, observer)) = parser.as_mut() {
-                if let Some(usage) = parser.push(data) {
+                if let Some((_protocol, usage)) = parser.push(data) {
                     observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
                 }
             }
@@ -453,14 +533,43 @@ pub struct UsageObserver {
     telemetry: Arc<Telemetry>,
     prices: Arc<PriceBook>,
     site: String,
-    provider_name: String,
-    provider: Provider,
+    agent_cli: String,
 }
 
 impl UsageObserver {
     fn record(&self, model: &str, usage: &crate::usage::TokenUsage) {
         self.telemetry
-            .record_usage(&self.site, &self.provider_name, model, usage, &self.prices);
+            .record_usage(&self.site, model, &self.agent_cli, usage, &self.prices);
+    }
+
+    fn record_tokens(&self, model: &str, usage: &crate::usage::TokenUsage) {
+        self.telemetry
+            .record_usage_tokens(&self.site, model, &self.agent_cli, usage, &self.prices);
+    }
+}
+
+fn agent_cli(
+    user_agent: Option<&str>,
+    is_oh_my_pi_cursor_request: bool,
+    is_oh_my_pi_cursor_cli_request: bool,
+) -> String {
+    let user_agent = user_agent.unwrap_or_default().to_ascii_lowercase();
+    if is_oh_my_pi_cursor_request
+        || is_oh_my_pi_cursor_cli_request
+        || user_agent.contains("oh-my-pi")
+        || user_agent.contains("oh_my_pi")
+    {
+        "oh_my_pi".to_owned()
+    } else if user_agent.contains("claude") {
+        "claude_code".to_owned()
+    } else if user_agent.contains("codex") {
+        "codex".to_owned()
+    } else if user_agent.contains("gemini-cli") {
+        "gemini_cli".to_owned()
+    } else if user_agent.contains("opencode") {
+        "opencode".to_owned()
+    } else {
+        "unknown".to_owned()
     }
 }
 
@@ -481,35 +590,6 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     Box::new(error)
-}
-
-#[derive(Clone)]
-struct RoutedConnector {
-    egress: EgressConnector,
-    http1_only: bool,
-}
-
-impl Service<Uri> for RoutedConnector {
-    type Response = TokioIo<UpstreamStream>;
-    type Error = EgressError;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, uri: Uri) -> Self::Future {
-        let egress = self.egress.clone();
-        let http1_only = self.http1_only;
-        Box::pin(async move {
-            let stream = if http1_only {
-                egress.connect_uri_http1(&uri).await
-            } else {
-                egress.connect_uri(&uri).await
-            }?;
-            Ok(TokioIo::new(stream))
-        })
-    }
 }
 
 fn websocket_upgrade_requested(request: &Request<Incoming>) -> bool {
@@ -537,6 +617,16 @@ fn connector_for_site(
         Some(proxy) => EgressConnector::from_proxy(proxy)
             .map_err(|error| ProxyError::Egress(error.to_string())),
         None => Ok(EgressConnector::direct()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::agent_cli;
+
+    #[test]
+    fn identifies_oh_my_pi_from_cursor_cli_headers() {
+        assert_eq!(agent_cli(None, false, true), "oh_my_pi",);
     }
 }
 
