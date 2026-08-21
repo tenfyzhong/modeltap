@@ -291,6 +291,22 @@ fn parses_a_fragmented_websocket_response_completed_usage_event() {
 }
 
 #[test]
+fn retains_buffered_websocket_frames_after_reporting_usage() {
+    let first = websocket_text_frame(
+        br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","usage":{"input_tokens":100,"output_tokens":10}}}"#,
+    );
+    let second = websocket_text_frame(
+        br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","usage":{"input_tokens":100,"output_tokens":20}}}"#,
+    );
+    let mut parser = WebSocketUsageParser::new();
+    let mut frames = first;
+    frames.extend(second);
+
+    assert_eq!(parser.push(&frames).unwrap().1.tokens.output, 10);
+    assert_eq!(parser.push(&[]).unwrap().1.tokens.output, 20);
+}
+
+#[test]
 fn decompresses_permessage_deflate_websocket_usage_events() {
     let payload = br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","usage":{"input_tokens":100,"output_tokens":20,"input_tokens_details":{"cached_tokens":30}}}}"#;
     let frame = websocket_compressed_text_frame(payload);

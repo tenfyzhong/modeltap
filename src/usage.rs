@@ -1,6 +1,5 @@
 use flate2::{Decompress, FlushDecompress};
 use serde::Deserialize;
-use serde_json::Value;
 use std::borrow::Cow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -502,23 +501,35 @@ impl WebSocketUsageParser {
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
-        self.buffer.extend_from_slice(bytes);
-        while let Some(frame) = websocket_frame(&self.buffer) {
-            let mut payload = self.buffer
-                [frame.payload_start..frame.payload_start + frame.payload_length]
-                .to_vec();
-            self.buffer.drain(..frame.length);
-            if let Some(mask) = frame.mask {
+        let mut buffer = std::mem::take(&mut self.buffer);
+        buffer.extend_from_slice(bytes);
+        let mut consumed = 0;
+        while let Some(frame) = websocket_frame(&buffer[consumed..]) {
+            let payload_start = consumed + frame.payload_start;
+            let payload_end = payload_start + frame.payload_length;
+            consumed += frame.length;
+            let usage = if let Some(mask) = frame.mask {
+                let mut payload = buffer[payload_start..payload_end].to_vec();
                 for (index, byte) in payload.iter_mut().enumerate() {
                     *byte ^= mask[index % mask.len()];
                 }
-            }
-            if let Some(usage) =
                 self.process_frame(frame.fin, frame.opcode, frame.compressed, &payload)
-            {
+            } else {
+                self.process_frame(
+                    frame.fin,
+                    frame.opcode,
+                    frame.compressed,
+                    &buffer[payload_start..payload_end],
+                )
+            };
+            if let Some(usage) = usage {
+                compact_websocket_buffer(&mut buffer, consumed);
+                self.buffer = buffer;
                 return Some(usage);
             }
         }
+        compact_websocket_buffer(&mut buffer, consumed);
+        self.buffer = buffer;
         None
     }
 
@@ -618,15 +629,19 @@ impl WebSocketUsageParser {
     }
 
     fn process_text(&mut self, payload: &[u8]) -> Option<(Provider, ParsedUsage)> {
-        if let Ok(value) = serde_json::from_slice::<Value>(payload) {
-            if matches!(
-                value.get("type").and_then(Value::as_str),
-                Some("response.completed" | "response.done")
-            ) {
-                return auto_parse_json(payload);
-            }
+        if let Some(usage) = auto_parse_json(payload) {
+            return Some(usage);
         }
         self.sse.push(payload)
+    }
+}
+
+fn compact_websocket_buffer(buffer: &mut Vec<u8>, consumed: usize) {
+    if consumed == buffer.len() {
+        buffer.clear();
+    } else if consumed > 0 {
+        buffer.copy_within(consumed.., 0);
+        buffer.truncate(buffer.len() - consumed);
     }
 }
 
