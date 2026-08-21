@@ -87,6 +87,10 @@ impl Provider {
 
 pub fn auto_parse_json(bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
     let value: Value = serde_json::from_slice(bytes).ok()?;
+    auto_parse_value(&value)
+}
+
+fn auto_parse_value(value: &Value) -> Option<(Provider, ParsedUsage)> {
     let provider = if value.get("usageMetadata").is_some()
         || value
             .get("response")
@@ -119,6 +123,27 @@ pub fn auto_parse_json(bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
         return None;
     };
     provider.parse_value(&value).map(|usage| (provider, usage))
+}
+
+fn model_from_value(value: &Value) -> Option<String> {
+    [
+        value.get("model"),
+        value.get("modelVersion"),
+        value
+            .get("response")
+            .and_then(|response| response.get("model")),
+        value
+            .get("response")
+            .and_then(|response| response.get("modelVersion")),
+        value
+            .get("message")
+            .and_then(|message| message.get("model")),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(Value::as_str)
+    .filter(|model| !model.is_empty())
+    .map(ToOwned::to_owned)
 }
 
 const MAX_CURSOR_CONNECT_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -191,6 +216,7 @@ pub struct StreamUsageParser {
 pub struct AutoStreamUsageParser {
     buffer: Vec<u8>,
     consumed: usize,
+    model: Option<String>,
     latest: Option<(Provider, ParsedUsage)>,
 }
 
@@ -201,6 +227,7 @@ impl AutoStreamUsageParser {
         Self {
             buffer: Vec::new(),
             consumed: 0,
+            model: None,
             latest: None,
         }
     }
@@ -233,6 +260,17 @@ impl AutoStreamUsageParser {
     }
 
     fn process_event(&mut self, event: &[u8]) -> Option<(Provider, ParsedUsage)> {
+        let is_done = contains_bytes(event, b"data: [DONE]");
+        let is_terminal = contains_bytes(event, b"event: message_stop")
+            || contains_bytes(event, b"event: response.completed");
+        let has_usage =
+            contains_bytes(event, b"\"usage\"") || contains_bytes(event, b"\"usageMetadata\"");
+        let needs_model = self.model.is_none()
+            && (contains_bytes(event, b"\"model\"") || contains_bytes(event, b"\"modelVersion\""));
+        if !is_done && !is_terminal && !has_usage && !needs_model {
+            return None;
+        }
+
         let event = std::str::from_utf8(event).ok()?;
         let mut event_name = "";
         let mut data = String::new();
@@ -250,14 +288,25 @@ impl AutoStreamUsageParser {
         if data == "[DONE]" {
             return self.latest.clone();
         }
-        if let Some((provider, mut usage)) = auto_parse_json(data.as_bytes()) {
-            if usage.model.is_none() {
-                usage.model = self
-                    .latest
-                    .as_ref()
-                    .and_then(|(_, usage)| usage.model.clone());
+
+        if has_usage || needs_model {
+            let value: Value = serde_json::from_str(&data).ok()?;
+            if self.model.is_none() {
+                self.model = model_from_value(&value);
             }
-            self.latest = Some((provider, usage));
+            if let Some((provider, mut usage)) = auto_parse_value(&value) {
+                if usage.model.is_none() {
+                    usage.model = self.model.clone().or_else(|| {
+                        self.latest
+                            .as_ref()
+                            .and_then(|(_, usage)| usage.model.clone())
+                    });
+                }
+                if self.model.is_none() {
+                    self.model = usage.model.clone();
+                }
+                self.latest = Some((provider, usage));
+            }
         }
         matches!(event_name, "message_stop" | "response.completed")
             .then(|| self.latest.clone())
@@ -535,6 +584,10 @@ fn find_event_end(bytes: &[u8]) -> Option<usize> {
                 .position(|window| window == b"\n\n")
                 .map(|position| position + 2)
         })
+}
+
+fn contains_bytes(bytes: &[u8], needle: &[u8]) -> bool {
+    bytes.windows(needle.len()).any(|window| window == needle)
 }
 
 fn take_connect_message(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
