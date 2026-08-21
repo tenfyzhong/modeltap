@@ -21,8 +21,10 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as ServerBuilder;
 use std::convert::Infallible;
 use std::io;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Instant;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -213,6 +215,7 @@ async fn forward_mitm_request(
     egress: EgressConnector,
     observer: Option<UsageObserver>,
 ) -> Result<Response<ProxyBody>, Infallible> {
+    let request_started = Instant::now();
     let path_and_query = request
         .uri()
         .path_and_query()
@@ -283,9 +286,11 @@ async fn forward_mitm_request(
     let request_method = method.clone();
     let request_target = target.clone();
     let cursor_request_parser = cursor_usage.clone();
+    let request_processing_observer = observer.clone();
     let request = request.map(move |body| {
         body.map_frame(move |frame| {
             if let Some(data) = frame.data_ref() {
+                let started = request_processing_observer.as_ref().map(|_| Instant::now());
                 debug!(
                     method = %request_method,
                     target = %request_target,
@@ -306,13 +311,20 @@ async fn forward_mitm_request(
                         }
                     }
                 }
+                if let (Some(observer), Some(started)) =
+                    (request_processing_observer.as_ref(), started)
+                {
+                    observer.telemetry.record_local_processing_duration(
+                        &observer.site,
+                        local_processing_microseconds(started),
+                    );
+                }
             }
             frame
         })
         .map_err(box_error)
         .boxed()
     });
-    let request_started = Instant::now();
     match send_upstream_request(&egress, request, upgrade_requested).await {
         Ok(mut response) => {
             if let Some(observer) = observer.as_ref() {
@@ -363,6 +375,7 @@ async fn forward_mitm_request(
                             }
                         }
                     });
+                    return Ok(response.map(|body| body.map_err(box_error).boxed()));
                 }
             }
             let mut parser = observer
@@ -371,59 +384,83 @@ async fn forward_mitm_request(
                 .map(|observer| (AutoStreamUsageParser::new(), observer));
             let cursor_observer = is_cursor_connect.then_some(observer.clone()).flatten();
             let direct_observer = (!is_sse && !is_cursor_connect)
-                .then_some(observer)
+                .then_some(observer.clone())
                 .flatten();
+            let completion_observer = observer.clone();
+            let response_processing_observer = observer.clone();
             let mut direct_recorded = false;
-            Ok(response.map(move |body| {
-                body.map_frame(move |frame| {
-                    if let Some(data) = frame.data_ref() {
-                        debug!(
-                            bytes = data.len(),
-                            content = %body_preview(data, BODY_PREVIEW_LIMIT),
-                            "processing response body chunk"
-                        );
-                    }
-                    if let (Some((stream, observer)), Some(data)) =
-                        (parser.as_mut(), frame.data_ref())
-                    {
-                        if let Some((_protocol, usage)) = stream.push(data) {
-                            observer
-                                .record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
-                        }
-                    } else if let (Some(parser), Some(observer), Some(data)) = (
-                        cursor_usage.as_ref(),
-                        cursor_observer.as_ref(),
-                        frame.data_ref(),
-                    ) {
-                        if let Ok(mut parser) = parser.lock() {
-                            if let Some(usage) = parser.push_response(data) {
-                                let model = usage.model.as_deref().unwrap_or("unknown");
-                                if parser.request_reported() {
-                                    observer.record_tokens(model, &usage.tokens);
-                                } else {
-                                    parser.mark_request_reported();
-                                    observer.record(model, &usage.tokens);
+            Ok(response
+                .map(move |body| {
+                    body.map_frame(move |frame| {
+                        if let Some(data) = frame.data_ref() {
+                            let started = response_processing_observer
+                                .as_ref()
+                                .map(|_| Instant::now());
+                            debug!(
+                                bytes = data.len(),
+                                content = %body_preview(data, BODY_PREVIEW_LIMIT),
+                                "processing response body chunk"
+                            );
+                            if let (Some((stream, observer)), Some(data)) =
+                                (parser.as_mut(), frame.data_ref())
+                            {
+                                if let Some((_protocol, usage)) = stream.push(data) {
+                                    observer.record(
+                                        usage.model.as_deref().unwrap_or("unknown"),
+                                        &usage.tokens,
+                                    );
+                                }
+                            } else if let (Some(parser), Some(observer), Some(data)) = (
+                                cursor_usage.as_ref(),
+                                cursor_observer.as_ref(),
+                                frame.data_ref(),
+                            ) {
+                                if let Ok(mut parser) = parser.lock() {
+                                    if let Some(usage) = parser.push_response(data) {
+                                        let model = usage.model.as_deref().unwrap_or("unknown");
+                                        if parser.request_reported() {
+                                            observer.record_tokens(model, &usage.tokens);
+                                        } else {
+                                            parser.mark_request_reported();
+                                            observer.record(model, &usage.tokens);
+                                        }
+                                    }
+                                }
+                            } else if let (Some(observer), Some(data)) =
+                                (direct_observer.as_ref(), frame.data_ref())
+                            {
+                                if !direct_recorded {
+                                    if let Some((_protocol, usage)) = auto_parse_json(data) {
+                                        observer.record(
+                                            usage.model.as_deref().unwrap_or("unknown"),
+                                            &usage.tokens,
+                                        );
+                                        direct_recorded = true;
+                                    }
                                 }
                             }
-                        }
-                    } else if let (Some(observer), Some(data)) =
-                        (direct_observer.as_ref(), frame.data_ref())
-                    {
-                        if !direct_recorded {
-                            if let Some((_protocol, usage)) = auto_parse_json(data) {
-                                observer.record(
-                                    usage.model.as_deref().unwrap_or("unknown"),
-                                    &usage.tokens,
+                            if let (Some(observer), Some(started)) =
+                                (response_processing_observer.as_ref(), started)
+                            {
+                                observer.telemetry.record_local_processing_duration(
+                                    &observer.site,
+                                    local_processing_microseconds(started),
                                 );
-                                direct_recorded = true;
                             }
                         }
-                    }
-                    frame
+                        frame
+                    })
+                    .map_err(box_error)
+                    .boxed()
                 })
-                .map_err(box_error)
-                .boxed()
-            }))
+                .map(move |body| {
+                    MeasuredBody {
+                        inner: body,
+                        observer: completion_observer,
+                        started: request_started,
+                    }
+                    .boxed()
+                }))
         }
         Err(error) => {
             warn!(method = %method, target = %target, error = %error, "MITM upstream request failed");
@@ -433,6 +470,43 @@ async fn forward_mitm_request(
             ))
         }
     }
+}
+
+struct MeasuredBody {
+    inner: ProxyBody,
+    observer: Option<UsageObserver>,
+    started: Instant,
+}
+
+impl hyper::body::Body for MeasuredBody {
+    type Data = Bytes;
+    type Error = BoxError;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        Pin::new(&mut self.inner).poll_frame(cx)
+    }
+}
+
+impl Drop for MeasuredBody {
+    fn drop(&mut self) {
+        if let Some(observer) = self.observer.as_ref() {
+            observer.telemetry.record_processing_duration(
+                &observer.site,
+                self.started
+                    .elapsed()
+                    .as_micros()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            );
+        }
+    }
+}
+
+fn local_processing_microseconds(started: Instant) -> f64 {
+    started.elapsed().as_secs_f64() * 1_000_000.0
 }
 
 async fn send_upstream_request(
@@ -491,12 +565,14 @@ where
 {
     let (mut client_read, mut client_write) = tokio::io::split(client);
     let (mut upstream_read, mut upstream_write) = tokio::io::split(upstream);
+    let upstream_usage_observer = observer.clone();
+    let upstream_processing_observer = observer.clone();
     let client_to_upstream = async move {
         tokio::io::copy(&mut client_read, &mut upstream_write).await?;
         upstream_write.shutdown().await
     };
     let upstream_to_client = async move {
-        let mut parser = observer.clone().map(|observer| {
+        let mut parser = upstream_usage_observer.map(|observer| {
             let parser = match permessage_deflate {
                 Some(server_no_context_takeover) => {
                     WebSocketUsageParser::with_permessage_deflate(server_no_context_takeover)
@@ -512,6 +588,9 @@ where
                 return client_write.shutdown().await;
             }
             let data = &buffer[..read];
+            let started = upstream_processing_observer
+                .as_ref()
+                .map(|_| Instant::now());
             debug!(
                 bytes = data.len(),
                 content = %body_preview(data, BODY_PREVIEW_LIMIT),
@@ -521,6 +600,14 @@ where
                 if let Some((_protocol, usage)) = parser.push(data) {
                     observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
                 }
+            }
+            if let (Some(observer), Some(started)) =
+                (upstream_processing_observer.as_ref(), started)
+            {
+                observer.telemetry.record_local_processing_duration(
+                    &observer.site,
+                    local_processing_microseconds(started),
+                );
             }
             client_write.write_all(data).await?;
         }
@@ -622,11 +709,30 @@ fn connector_for_site(
 
 #[cfg(test)]
 mod tests {
-    use super::agent_cli;
+    use super::{agent_cli, tunnel_websocket};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
     fn identifies_oh_my_pi_from_cursor_cli_headers() {
         assert_eq!(agent_cli(None, false, true), "oh_my_pi",);
+    }
+
+    #[tokio::test]
+    async fn websocket_tunnel_forwards_server_frames() {
+        let (tunnel_client, mut client) = tokio::io::duplex(64 * 1024);
+        let (tunnel_upstream, mut upstream) = tokio::io::duplex(64 * 1024);
+        let tunnel = tokio::spawn(tunnel_websocket(tunnel_client, tunnel_upstream, None, None));
+        let payload = vec![b'x'; 64 * 1024];
+
+        client.shutdown().await.unwrap();
+        upstream.write_all(&payload).await.unwrap();
+        upstream.shutdown().await.unwrap();
+
+        let mut forwarded = vec![0; payload.len()];
+        client.read_exact(&mut forwarded).await.unwrap();
+        tunnel.await.unwrap().unwrap();
+
+        assert_eq!(forwarded, payload);
     }
 }
 
