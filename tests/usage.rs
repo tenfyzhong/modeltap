@@ -36,6 +36,19 @@ fn automatically_detects_anthropic_sse_completion() {
 }
 
 #[test]
+fn processes_all_completed_sse_events_in_a_single_body_chunk() {
+    let mut parser = AutoStreamUsageParser::new();
+    let (_, usage) = parser
+        .push(
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5-mini\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10}}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5-mini\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20}}}\n\n",
+        )
+        .unwrap();
+
+    assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
+    assert_eq!(usage.tokens.output, 20);
+}
+
+#[test]
 fn parses_cursor_connect_usage_for_any_requested_model() {
     let mut parser = CursorUsageParser::new();
     let model = "glm-4.7";

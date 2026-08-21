@@ -58,12 +58,16 @@ impl Provider {
 
     pub fn parse_json(self, bytes: &[u8]) -> Option<ParsedUsage> {
         let value: Value = serde_json::from_slice(bytes).ok()?;
+        self.parse_value(&value)
+    }
+
+    fn parse_value(self, value: &Value) -> Option<ParsedUsage> {
         match self {
-            Self::OpenAiChat | Self::OpenAiEmbedding => parse_openai(&value),
-            Self::OpenAiResponses => parse_openai(value.get("response").unwrap_or(&value)),
-            Self::Anthropic => parse_anthropic(&value),
-            Self::DeepSeek => parse_deepseek(&value),
-            Self::Gemini => parse_gemini(&value),
+            Self::OpenAiChat | Self::OpenAiEmbedding => parse_openai(value),
+            Self::OpenAiResponses => parse_openai(value.get("response").unwrap_or(value)),
+            Self::Anthropic => parse_anthropic(value),
+            Self::DeepSeek => parse_deepseek(value),
+            Self::Gemini => parse_gemini(value),
             Self::Cursor => None,
         }
     }
@@ -114,7 +118,7 @@ pub fn auto_parse_json(bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
     } else {
         return None;
     };
-    provider.parse_json(bytes).map(|usage| (provider, usage))
+    provider.parse_value(&value).map(|usage| (provider, usage))
 }
 
 const MAX_CURSOR_CONNECT_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -186,27 +190,46 @@ pub struct StreamUsageParser {
 
 pub struct AutoStreamUsageParser {
     buffer: Vec<u8>,
+    consumed: usize,
     latest: Option<(Provider, ParsedUsage)>,
 }
+
+const BUFFER_COMPACTION_THRESHOLD: usize = 64 * 1024;
 
 impl AutoStreamUsageParser {
     pub fn new() -> Self {
         Self {
             buffer: Vec::new(),
+            consumed: 0,
             latest: None,
         }
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
         self.buffer.extend_from_slice(bytes);
-        while let Some(end) = find_event_end(&self.buffer) {
-            let event = self.buffer.drain(..end).collect::<Vec<_>>();
+        let mut result = None;
+        while let Some(event_length) = find_event_end(&self.buffer[self.consumed..]) {
+            let event_end = self.consumed + event_length;
+            let event = self.buffer[self.consumed..event_end].to_vec();
+            self.consumed = event_end;
             let separator = if event.ends_with(b"\r\n\r\n") { 4 } else { 2 };
             if let Some(usage) = self.process_event(&event[..event.len() - separator]) {
-                return Some(usage);
+                result = Some(usage);
             }
         }
-        None
+        self.compact_buffer();
+        result
+    }
+
+    fn compact_buffer(&mut self) {
+        if self.consumed == self.buffer.len() {
+            self.buffer.clear();
+            self.consumed = 0;
+        } else if self.consumed >= BUFFER_COMPACTION_THRESHOLD {
+            self.buffer.copy_within(self.consumed.., 0);
+            self.buffer.truncate(self.buffer.len() - self.consumed);
+            self.consumed = 0;
+        }
     }
 
     fn process_event(&mut self, event: &[u8]) -> Option<(Provider, ParsedUsage)> {
