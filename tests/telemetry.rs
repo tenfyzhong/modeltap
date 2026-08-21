@@ -90,7 +90,7 @@ async fn exports_usage_metrics_to_the_alloy_otlp_http_path() {
     );
     telemetry.record_response_duration("openai", 0.042);
     telemetry.record_processing_duration("openai", 123);
-    telemetry.record_local_processing_duration("openai", 45);
+    telemetry.record_local_processing_duration("openai", 0.5);
     telemetry.force_flush().unwrap();
     receiver.await.unwrap();
 }

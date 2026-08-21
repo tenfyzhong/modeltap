@@ -310,10 +310,10 @@ sudo journalctl -u alloy -f</code></pre>
   <p>Usage metrics are <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>. Labels are limited to site, model, agent CLI, token type, pricing period, and currency.</p>
 
   <h2>Telemetry overhead and latency</h2>
-  <p>Four additional OTLP histograms quantify proxy latency and overhead: <code>ai_proxy_upstream_first_response_seconds</code> measures the time from a proxied request reaching ModelTap until upstream response headers arrive; <code>ai_proxy_processing_duration_microseconds</code> measures, in microseconds, the time from a request entering ModelTap until its response leaves it; <code>ai_proxy_local_processing_duration_microseconds</code> measures ModelTap's local HTTP body parsing and usage-recording time, excluding upstream and OTLP export network time; and <code>ai_proxy_telemetry_record_duration_seconds</code> measures local usage-metric recording time. The OTLP SDK batches exports in the background instead of waiting in the user response path.</p>
+  <p>Four additional OTLP histograms quantify proxy latency and overhead: <code>ai_proxy_upstream_first_response_seconds</code> measures the time from a proxied request reaching ModelTap until upstream response headers arrive; <code>ai_proxy_processing_duration_microseconds</code> measures, in microseconds, the time from a request entering ModelTap until its response leaves it; <code>ai_proxy_local_processing_duration_microseconds</code> records one sample for each HTTP body chunk and server-to-client WebSocket frame that ModelTap parses and uses to record usage. It excludes upstream and OTLP export network time; <code>ai_proxy_telemetry_record_duration_seconds</code> measures local usage-metric recording time. The OTLP SDK batches exports in the background instead of waiting in the user response path.</p>
   <pre><code>histogram_quantile(0.95,
   sum by (le) (rate(ai_proxy_telemetry_record_duration_seconds_bucket[5m])))</code></pre>
-  <p>To monitor ModelTap's p95 local processing overhead, query:</p>
+  <p>To monitor ModelTap's p95 per-chunk processing overhead, query:</p>
   <pre><code>histogram_quantile(0.95,
   sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket[5m])))</code></pre>
 

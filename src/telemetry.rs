@@ -177,11 +177,9 @@ impl Telemetry {
         );
     }
 
-    pub fn record_local_processing_duration(&self, site: &str, microseconds: u64) {
-        self.local_processing_duration.record(
-            microseconds as f64,
-            &[KeyValue::new("site", site.to_owned())],
-        );
+    pub fn record_local_processing_duration(&self, site: &str, microseconds: f64) {
+        self.local_processing_duration
+            .record(microseconds, &[KeyValue::new("site", site.to_owned())]);
     }
 
     pub fn force_flush(&self) -> Result<(), TelemetryError> {
