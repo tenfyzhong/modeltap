@@ -214,8 +214,8 @@ fn uses_daily_peak_windows_in_the_configured_timezone() {
 }
 
 #[test]
-fn test_config_uses_official_deepseek_v4_prices_converted_to_usd() {
-    let config = Config::from_yaml(include_str!("../config.test.yaml")).unwrap();
+fn config_sample_uses_official_deepseek_v4_prices_converted_to_usd() {
+    let config = Config::from_yaml(include_str!("../config.sample.yaml")).unwrap();
     assert_eq!(config.egress_for_site("deepseek").unwrap().id, "direct");
     assert_eq!(config.site_for_host("api.x.ai").unwrap().id, "grok");
     assert_eq!(config.site_for_host("api2.cursor.sh").unwrap().id, "cursor");
@@ -259,8 +259,8 @@ fn test_config_uses_official_deepseek_v4_prices_converted_to_usd() {
 }
 
 #[test]
-fn test_config_prices_cursor_models_at_official_upstream_rates() {
-    let config = Config::from_yaml(include_str!("../config.test.yaml")).unwrap();
+fn config_sample_prices_cursor_models_at_official_upstream_rates() {
+    let config = Config::from_yaml(include_str!("../config.sample.yaml")).unwrap();
     let book = PriceBook::from_config(&config.pricing).unwrap();
     let instant = Utc.with_ymd_and_hms(2026, 8, 20, 2, 0, 0).unwrap();
 

@@ -1,51 +1,305 @@
-# Copy this file to config.yaml and replace the placeholder values before use.
-# Generate the CA files once with:
+# Copy this file to config.yaml and replace the environment-specific values
+# before use. Generate the CA files once with:
 #   modeltap ca-init --cert certs/modeltap-ca-cert.pem --key certs/modeltap-ca-key.pem
 
 proxy:
   listen: 127.0.0.1:8080
 
 logging:
-  level: warn
-  # file: ./logs/modeltap.log
+  level: info
 
 tls:
   ca_cert_file: ./certs/modeltap-ca-cert.pem
   ca_key_file: ./certs/modeltap-ca-key.pem
 
-# Remove this section when OTLP metrics are not required.
 telemetry:
   otlp:
     endpoint: http://127.0.0.1:4318
-    service_name: modeltap
+    service_name: modeltap-test
 
-# Use `direct` to connect to model APIs directly. To use an upstream proxy,
-# define it here and set `default` to its id.
 egress:
-  default: direct
-  proxies: []
+  default: privoxy
+  proxies:
+    - id: privoxy
+      url: http://127.0.0.1:8118
 
-# `id` is the metric and pricing identity. ModelTap detects each site's request
-# and response protocol automatically.
 sites:
   - id: openai
-    hosts: [api.openai.com, chatgpt.com]
+    hosts:
+      - chatgpt.com
   - id: anthropic
-    hosts: [anthropic.com]
+    hosts:
+      - anthropic.com
   - id: gemini
-    hosts: [googleapis.com]
+    hosts:
+      - googleapis.com
   - id: deepseek
-    hosts: [api.deepseek.com]
+    hosts:
+      - api.deepseek.com
+    egress: direct
   - id: grok
-    hosts: [api.x.ai]
+    hosts:
+      - api.x.ai
   - id: cursor
-    hosts: [api2.cursor.sh]
+    hosts:
+      - cursor.sh
+      - cursor.com
 
 pricing:
   timezone: Asia/Shanghai
-  # Add official per-million-token prices for the models you use.
-  # - site: openai
-  #   model: "gpt-*"
-  #   currency: USD
-  #   rates: {input: 1.25, output: 10, cache_read: 0.125}
-  rules: []
+  # Official first-party API list prices checked on 2026-08-21.
+  # All rates are USD per 1M tokens. DeepSeek's official CNY prices use its
+  # Beijing-time peak windows and are converted with the 2026-08-19 ECB rates:
+  # 1 EUR = 7.8197 CNY and 1 EUR = 1.1605 USD (1 CNY = 0.148407227899 USD).
+  peak_windows:
+    - start: "09:00"
+      end: "12:00"
+    - start: "14:00"
+      end: "18:00"
+  rules:
+    # Cursor is a gateway: apply the applicable upstream provider's public API
+    # list price, rather than Cursor plan or usage-based pricing.  Rules for
+    # Cursor-only models and Cursor "fast" variants are intentionally omitted
+    # unless that provider publishes a corresponding token rate.
+    - site: cursor
+      model: "cursor-grok-4.6-*-fast"
+      currency: USD
+      rates:
+        input: 4
+        output: 12
+        cache_read: 1
+    - site: cursor
+      model: "cursor-grok-4.6-*"
+      currency: USD
+      rates:
+        input: 2
+        output: 6
+        cache_read: 0.5
+    - site: cursor
+      model: "cursor-grok-4.5-*"
+      currency: USD
+      rates:
+        input: 2
+        output: 6
+        cache_read: 0.3
+    - site: cursor
+      model: "grok-code-fast-1"
+      currency: USD
+      rates:
+        input: 1
+        output: 2
+        cache_read: 0.2
+    - site: cursor
+      model: "gpt-5-mini"
+      currency: USD
+      rates:
+        input: 0.25
+        output: 2
+        cache_read: 0.025
+    - site: cursor
+      model: "gpt-5.1{,-high,-low}"
+      currency: USD
+      rates:
+        input: 1.25
+        output: 10
+        cache_read: 0.125
+    - site: cursor
+      model: "gpt-5.2{,-high,-low,-xhigh}"
+      currency: USD
+      rates:
+        input: 1.75
+        output: 14
+        cache_read: 0.175
+    - site: cursor
+      model: "gpt-5.3-codex{,-high,-low,-xhigh}"
+      currency: USD
+      rates:
+        input: 3.5
+        output: 28
+        cache_read: 0.35
+    - site: cursor
+      model: "gpt-5.4-{high,low,medium,xhigh}"
+      currency: USD
+      rates:
+        input: 1.25
+        output: 7.5
+        cache_read: 0.125
+    - site: cursor
+      model: "gpt-5.4-mini-{high,low,medium,none,xhigh}"
+      currency: USD
+      rates:
+        input: 0.75
+        output: 4.5
+        cache_read: 0.075
+    - site: cursor
+      model: "gpt-5.4-nano-{high,low,medium,none,xhigh}"
+      currency: USD
+      rates:
+        input: 0.2
+        output: 1.25
+        cache_read: 0.02
+    - site: cursor
+      model: "gpt-5.5-{extra-high,high,low,medium,none}"
+      currency: USD
+      rates:
+        input: 2.5
+        output: 15
+        cache_read: 0.25
+    - site: cursor
+      model: "gpt-5.6-sol-{high,low,max,medium,none,xhigh}"
+      currency: USD
+      rates:
+        input: 2.5
+        output: 15
+        cache_read: 0.25
+    - site: cursor
+      model: "gpt-5.6-terra-{high,low,max,medium,none,xhigh}"
+      currency: USD
+      rates:
+        input: 1.25
+        output: 7.5
+        cache_read: 0.125
+    - site: cursor
+      model: "gpt-5.6-luna-{high,low,max,medium,none,xhigh}"
+      currency: USD
+      rates:
+        input: 0.5
+        output: 3
+        cache_read: 0.05
+    - site: cursor
+      model: "claude-4-sonnet"
+      currency: USD
+      rates:
+        input: 3
+        output: 15
+        cache_read: 0.3
+        cache_write: 3.75
+    - site: cursor
+      model: "claude-4.5-sonnet"
+      currency: USD
+      rates:
+        input: 3
+        output: 15
+        cache_read: 0.3
+        cache_write: 3.75
+    - site: cursor
+      model: "claude-4.5-opus-high"
+      currency: USD
+      rates:
+        input: 5
+        output: 25
+        cache_read: 0.5
+        cache_write: 6.25
+    - site: cursor
+      model: "claude-4.6-sonnet-medium"
+      currency: USD
+      rates:
+        input: 3
+        output: 15
+        cache_read: 0.3
+        cache_write: 3.75
+    - site: cursor
+      model: "claude-4.6-opus-{high,max}"
+      currency: USD
+      rates:
+        input: 5
+        output: 25
+        cache_read: 0.5
+        cache_write: 6.25
+    - site: cursor
+      model: "claude-opus-4-7-{high,low,max,medium,xhigh}"
+      currency: USD
+      rates:
+        input: 5
+        output: 25
+        cache_read: 0.5
+        cache_write: 6.25
+    - site: cursor
+      model: "claude-opus-4-8-{high,low,max,medium,xhigh}"
+      currency: USD
+      rates:
+        input: 5
+        output: 25
+        cache_read: 0.5
+        cache_write: 6.25
+    - site: cursor
+      model: "gemini-3.7-flash-*"
+      currency: USD
+      rates:
+        input: 0.75
+        output: 3.75
+        cache_read: 0.075
+    - site: openai
+      model: "gpt-5.6-sol*"
+      currency: USD
+      rates:
+        input: 5
+        output: 30
+        cache_read: 0.5
+    - site: openai
+      model: "gpt-5.6-terra*"
+      currency: USD
+      rates:
+        input: 2
+        output: 12
+        cache_read: 0.2
+    - site: openai
+      model: "gpt-5.6-luna*"
+      currency: USD
+      rates:
+        input: 0.2
+        output: 1.2
+        cache_read: 0.02
+    - site: anthropic
+      model: "claude-opus-4-8*"
+      currency: USD
+      rates:
+        input: 5
+        output: 25
+        cache_read: 0.5
+        cache_write: 6.25
+    - site: anthropic
+      model: "claude-sonnet-4-6*"
+      currency: USD
+      rates:
+        input: 3
+        output: 15
+        cache_read: 0.3
+        cache_write: 3.75
+    - site: anthropic
+      model: "claude-haiku-4-5*"
+      currency: USD
+      rates:
+        input: 1
+        output: 5
+        cache_read: 0.1
+        cache_write: 1.25
+    - site: gemini
+      model: "gemini-3.7-flash*"
+      currency: USD
+      rates:
+        input: 0.75
+        output: 3.75
+        cache_read: 0.075
+    - site: deepseek
+      model: "deepseek-v4-flash*"
+      currency: USD
+      peak:
+        input: 0.445221684
+        output: 1.335665051
+        cache_read: 0.014840723
+      off_peak:
+        input: 0.222610842
+        output: 0.667832526
+        cache_read: 0.007420361
+    - site: deepseek
+      model: "deepseek-v4-pro*"
+      currency: USD
+      peak:
+        input: 1.335665051
+        output: 4.006995153
+        cache_read: 0.044522168
+      off_peak:
+        input: 0.667832526
+        output: 2.003497577
+        cache_read: 0.022261084
