@@ -16,6 +16,6 @@ RUN apt-get update \
 COPY --from=builder /app/target/release/modeltap /usr/local/bin/modeltap
 
 USER modeltap
-EXPOSE 8080
+EXPOSE 2080
 ENTRYPOINT ["modeltap"]
 CMD ["--help"]

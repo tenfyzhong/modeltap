@@ -5,7 +5,7 @@ services:
     image: tenfyzhong/modeltap:latest
     command: ["run", "--config", "/etc/modeltap/config.yaml"]
     ports:
-      - "8080:8080"
+      - "2080:2080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

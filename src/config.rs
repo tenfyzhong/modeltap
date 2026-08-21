@@ -92,7 +92,7 @@ pub struct ProxyConfig {
 }
 
 fn default_listen() -> String {
-    "127.0.0.1:8080".to_owned()
+    "127.0.0.1:2080".to_owned()
 }
 
 impl Default for ProxyConfig {
