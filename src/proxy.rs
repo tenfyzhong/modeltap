@@ -394,7 +394,7 @@ async fn forward_mitm_request(
                 .flatten();
             let completion_observer = observer.clone();
             let response_processing_observer = observer.clone();
-            let mut direct_recorded = false;
+            let mut direct_parse_attempted = false;
             Ok(response
                 .map(move |body| {
                     body.map_frame(move |frame| {
@@ -435,13 +435,13 @@ async fn forward_mitm_request(
                             } else if let (Some(observer), Some(data)) =
                                 (direct_observer.as_ref(), frame.data_ref())
                             {
-                                if !direct_recorded {
+                                if should_parse_direct_json_usage(direct_parse_attempted, data) {
+                                    direct_parse_attempted = true;
                                     if let Some((_protocol, usage)) = auto_parse_json(data) {
                                         observer.record(
                                             usage.model.as_deref().unwrap_or("unknown"),
                                             &usage.tokens,
                                         );
-                                        direct_recorded = true;
                                     }
                                 }
                             }
@@ -521,6 +521,10 @@ fn is_json_content_type(value: &str) -> bool {
         .trim();
     media_type.eq_ignore_ascii_case("application/json")
         || media_type.to_ascii_lowercase().ends_with("+json")
+}
+
+fn should_parse_direct_json_usage(attempted: bool, data: &[u8]) -> bool {
+    !attempted && !data.is_empty()
 }
 
 async fn send_upstream_request(
@@ -728,7 +732,9 @@ fn connector_for_site(
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_cli, is_json_content_type, tunnel_websocket};
+    use super::{
+        agent_cli, is_json_content_type, should_parse_direct_json_usage, tunnel_websocket,
+    };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
@@ -742,6 +748,13 @@ mod tests {
         assert!(is_json_content_type("application/problem+json"));
         assert!(!is_json_content_type("text/plain"));
         assert!(!is_json_content_type("application/octet-stream"));
+    }
+
+    #[test]
+    fn attempts_direct_json_usage_parsing_once_for_non_empty_body_data() {
+        assert!(should_parse_direct_json_usage(false, b"{"));
+        assert!(!should_parse_direct_json_usage(true, b"{"));
+        assert!(!should_parse_direct_json_usage(false, b""));
     }
 
     #[tokio::test]
