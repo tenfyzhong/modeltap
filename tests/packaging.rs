@@ -33,3 +33,11 @@ fn release_workflow_excludes_intel_macos_binaries() {
     assert!(workflow.contains("gh release upload"));
     assert!(workflow.contains("modeltap-${RELEASE_TAG}-"));
 }
+
+#[test]
+fn release_workflow_normalizes_homebrew_bottle_asset_names() {
+    let workflow = include_str!("../.github/workflows/release.yml");
+
+    assert!(workflow.contains("modeltap--*.bottle.tar.gz"));
+    assert!(workflow.contains("${bottle/modeltap--/modeltap-}"));
+}
