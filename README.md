@@ -29,8 +29,9 @@ mkdir -p certs
 ./target/debug/modeltap ca-init \
   --cert certs/modeltap-ca-cert.pem \
   --key certs/modeltap-ca-key.pem
-./target/debug/modeltap run --config config.test.yaml
-./target/debug/modeltap validate --config config.test.yaml
+cp config.sample.yaml config.yaml
+./target/debug/modeltap run --config config.yaml
+./target/debug/modeltap validate --config config.yaml
 ```
 
 Use `modeltap validate --config <CONFIG>` to check YAML syntax, site/egress validation,
@@ -73,8 +74,8 @@ missing.
 
 Copy [`config.sample.yaml`](config.sample.yaml) before first use, then adjust its
 certificate paths, telemetry endpoint, egress proxy, sites, and pricing rules.
-`config.test.yaml` is maintained for automated tests and is not the starting
-point for a deployment. The following shows the equivalent local configuration:
+The sample includes a complete local configuration, including egress, sites,
+and pricing rules. The following shows the equivalent local configuration:
 
 ```yaml
 proxy:

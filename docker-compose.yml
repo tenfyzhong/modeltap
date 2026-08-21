@@ -9,7 +9,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./config.docker.yaml:/etc/modeltap/config.yaml:ro
+      - ./config.yaml:/etc/modeltap/config.yaml:ro
       - ./certs/modeltap-ca-cert.pem:/run/modeltap/ca-cert.pem:ro
       - ./certs/modeltap-ca-key.pem:/run/modeltap/ca-key.pem:ro
     restart: unless-stopped
