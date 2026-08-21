@@ -210,6 +210,16 @@ jobs:
           brew install --build-bottle "$TAP_NAME/$FORMULA"
           brew bottle --json --no-rebuild --root-url "$BOTTLE_ROOT_URL" "$TAP_NAME/$FORMULA"
 
+      - name: Normalize Homebrew bottle asset name
+        run: |
+          bottle="$(find . -maxdepth 1 -name 'modeltap--*.bottle.tar.gz' -print -quit)"
+          if [[ -z "$bottle" ]]; then
+            echo "Homebrew bottle archive is missing" >&2
+            exit 1
+          fi
+
+          mv "$bottle" "${bottle/modeltap--/modeltap-}"
+
       - name: Upload Homebrew bottle artifact
         uses: actions/upload-artifact@v4
         with:
