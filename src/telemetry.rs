@@ -24,6 +24,7 @@ pub struct Telemetry {
     cost: Counter<f64>,
     upstream_first_response: Histogram<f64>,
     processing_duration: Histogram<f64>,
+    local_processing_duration: Histogram<f64>,
     telemetry_record_duration: Histogram<f64>,
 }
 
@@ -61,6 +62,13 @@ impl Telemetry {
                 .f64_histogram("ai_proxy_processing_duration_microseconds")
                 .with_description(
                     "Time from a proxied request entering ModelTap until its response leaves ModelTap",
+                )
+                .with_unit("us")
+                .build(),
+            local_processing_duration: meter
+                .f64_histogram("ai_proxy_local_processing_duration_microseconds")
+                .with_description(
+                    "Local time spent parsing proxied HTTP bodies and recording usage telemetry",
                 )
                 .with_unit("us")
                 .build(),
@@ -164,6 +172,13 @@ impl Telemetry {
 
     pub fn record_processing_duration(&self, site: &str, microseconds: u64) {
         self.processing_duration.record(
+            microseconds as f64,
+            &[KeyValue::new("site", site.to_owned())],
+        );
+    }
+
+    pub fn record_local_processing_duration(&self, site: &str, microseconds: u64) {
+        self.local_processing_duration.record(
             microseconds as f64,
             &[KeyValue::new("site", site.to_owned())],
         );

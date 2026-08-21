@@ -44,6 +44,11 @@ async fn exports_usage_metrics_to_the_alloy_otlp_http_path() {
         );
         assert!(
             request
+                .windows(b"ai_proxy_local_processing_duration_microseconds".len())
+                .any(|bytes| bytes == b"ai_proxy_local_processing_duration_microseconds")
+        );
+        assert!(
+            request
                 .windows(b"agent_cli".len())
                 .any(|bytes| bytes == b"agent_cli")
         );
@@ -85,6 +90,7 @@ async fn exports_usage_metrics_to_the_alloy_otlp_http_path() {
     );
     telemetry.record_response_duration("openai", 0.042);
     telemetry.record_processing_duration("openai", 123);
+    telemetry.record_local_processing_duration("openai", 45);
     telemetry.force_flush().unwrap();
     receiver.await.unwrap();
 }

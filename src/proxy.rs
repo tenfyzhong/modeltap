@@ -23,6 +23,7 @@ use std::convert::Infallible;
 use std::io;
 use std::pin::Pin;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Instant;
@@ -280,14 +281,19 @@ async fn forward_mitm_request(
     });
     let cursor_usage = is_cursor_connect.then(|| Arc::new(Mutex::new(CursorUsageParser::new())));
     let cursor_request_observer = is_cursor_connect.then_some(observer.clone()).flatten();
+    let local_processing_duration = observer.as_ref().map(|_| Arc::new(AtomicU64::new(0)));
     let upgrade_requested = websocket_upgrade_requested(&request);
     let client_upgrade = upgrade_requested.then(|| hyper::upgrade::on(&mut request));
     debug!(method = %method, target = %target, "forwarding MITM HTTP request");
     let request_method = method.clone();
     let request_target = target.clone();
     let cursor_request_parser = cursor_usage.clone();
+    let request_local_processing_duration = local_processing_duration.clone();
     let request = request.map(move |body| {
         body.map_frame(move |frame| {
+            let started = request_local_processing_duration
+                .as_ref()
+                .map(|_| Instant::now());
             if let Some(data) = frame.data_ref() {
                 debug!(
                     method = %request_method,
@@ -309,6 +315,11 @@ async fn forward_mitm_request(
                         }
                     }
                 }
+            }
+            if let (Some(total), Some(started)) =
+                (request_local_processing_duration.as_ref(), started)
+            {
+                add_local_processing_duration(total, started);
             }
             frame
         })
@@ -376,10 +387,14 @@ async fn forward_mitm_request(
                 .then_some(observer.clone())
                 .flatten();
             let completion_observer = observer.clone();
+            let response_local_processing_duration = local_processing_duration.clone();
             let mut direct_recorded = false;
             Ok(response
                 .map(move |body| {
                     body.map_frame(move |frame| {
+                        let started = response_local_processing_duration
+                            .as_ref()
+                            .map(|_| Instant::now());
                         if let Some(data) = frame.data_ref() {
                             debug!(
                                 bytes = data.len(),
@@ -425,6 +440,11 @@ async fn forward_mitm_request(
                                 }
                             }
                         }
+                        if let (Some(total), Some(started)) =
+                            (response_local_processing_duration.as_ref(), started)
+                        {
+                            add_local_processing_duration(total, started);
+                        }
                         frame
                     })
                     .map_err(box_error)
@@ -435,6 +455,7 @@ async fn forward_mitm_request(
                         inner: body,
                         observer: completion_observer,
                         started: request_started,
+                        local_processing_duration,
                     }
                     .boxed()
                 }))
@@ -453,6 +474,7 @@ struct MeasuredBody {
     inner: ProxyBody,
     observer: Option<UsageObserver>,
     started: Instant,
+    local_processing_duration: Option<Arc<AtomicU64>>,
 }
 
 impl hyper::body::Body for MeasuredBody {
@@ -478,8 +500,19 @@ impl Drop for MeasuredBody {
                     .try_into()
                     .unwrap_or(u64::MAX),
             );
+            if let Some(duration) = self.local_processing_duration.as_ref() {
+                observer.telemetry.record_local_processing_duration(
+                    &observer.site,
+                    duration.load(Ordering::Relaxed),
+                );
+            }
         }
     }
+}
+
+fn add_local_processing_duration(total: &AtomicU64, started: Instant) {
+    let elapsed = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
+    total.fetch_add(elapsed, Ordering::Relaxed);
 }
 
 async fn send_upstream_request(

@@ -246,15 +246,15 @@ fn dashboard_abbreviates_token_values_with_k_m_and_b_suffixes() {
 }
 
 #[test]
-fn dashboard_shows_p95_processing_duration_in_microseconds() {
+fn dashboard_shows_p95_modeltap_local_processing_duration_in_microseconds() {
     let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
         .expect("dashboard JSON is valid");
     let panel = dashboard["panels"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|panel| panel["title"] == "P95 processing duration by site")
-        .expect("processing duration panel exists");
+        .find(|panel| panel["title"] == "P95 ModelTap local processing duration by site")
+        .expect("local processing duration panel exists");
 
     assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "µs");
     assert_eq!(panel["gridPos"]["w"], 24);
@@ -271,7 +271,7 @@ fn dashboard_shows_p95_processing_duration_in_microseconds() {
     );
     assert_eq!(
         panel["targets"][0]["expr"],
-        "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))"
+        "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))"
     );
     assert_eq!(panel["targets"][0]["legendFormat"], "{{site}}");
 }

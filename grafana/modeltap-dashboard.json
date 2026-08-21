@@ -161,8 +161,8 @@
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 47 },
       "id": 13,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))", "legendFormat": "{{site}}", "refId": "A" }],
-      "title": "P95 processing duration by site",
+      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))", "legendFormat": "{{site}}", "refId": "A" }],
+      "title": "P95 ModelTap local processing duration by site",
       "type": "timeseries"
     }
   ],

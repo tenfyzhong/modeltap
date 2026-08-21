@@ -310,13 +310,12 @@ sudo journalctl -u alloy -f</code></pre>
   <p>Usage metrics are <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>. Labels are limited to site, model, agent CLI, token type, pricing period, and currency.</p>
 
   <h2>Telemetry overhead and latency</h2>
-  <p>Three additional OTLP histograms quantify proxy latency: <code>ai_proxy_upstream_first_response_seconds</code> measures the time from a proxied request reaching ModelTap until upstream response headers arrive; <code>ai_proxy_processing_duration_microseconds</code> measures, in microseconds, the time from a request entering ModelTap until its response leaves it; and <code>ai_proxy_telemetry_record_duration_seconds</code> measures local usage-metric recording time. The latter does not include network export time: the OTLP SDK batches exports in the background instead of waiting in the user response path.</p>
+  <p>Four additional OTLP histograms quantify proxy latency and overhead: <code>ai_proxy_upstream_first_response_seconds</code> measures the time from a proxied request reaching ModelTap until upstream response headers arrive; <code>ai_proxy_processing_duration_microseconds</code> measures, in microseconds, the time from a request entering ModelTap until its response leaves it; <code>ai_proxy_local_processing_duration_microseconds</code> measures ModelTap's local HTTP body parsing and usage-recording time, excluding upstream and OTLP export network time; and <code>ai_proxy_telemetry_record_duration_seconds</code> measures local usage-metric recording time. The OTLP SDK batches exports in the background instead of waiting in the user response path.</p>
   <pre><code>histogram_quantile(0.95,
   sum by (le) (rate(ai_proxy_telemetry_record_duration_seconds_bucket[5m])))</code></pre>
-  <p>To monitor p95 request processing time, query:</p>
+  <p>To monitor ModelTap's p95 local processing overhead, query:</p>
   <pre><code>histogram_quantile(0.95,
-  sum by (le, site) (rate(ai_proxy_processing_duration_microseconds_bucket[5m])))</code></pre>
-  <p>Compare the upstream-first-response metric against a direct, no-proxy baseline to determine end-to-end added latency.</p>
+  sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket[5m])))</code></pre>
 
   <h2 id="docker">Docker</h2>
   <p>Generate the CA files on the host before starting the container:</p>
