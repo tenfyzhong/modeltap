@@ -50,9 +50,9 @@ restart the client (including any background daemon) after setting it:
 
 ```shell
 export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
-export HTTP_PROXY=http://127.0.0.1:8080
-export HTTPS_PROXY=http://127.0.0.1:8080
-export PI_PROXY=http://127.0.0.1:8080
+export HTTP_PROXY=http://127.0.0.1:2080
+export HTTPS_PROXY=http://127.0.0.1:2080
+export PI_PROXY=http://127.0.0.1:2080
 omp
 ```
 
@@ -61,12 +61,12 @@ variables override it. For example, use `PI_PROXY_CURSOR` when Cursor needs a
 different proxy endpoint:
 
 ```shell
-export PI_PROXY_CURSOR=http://127.0.0.1:8080
+export PI_PROXY_CURSOR=http://127.0.0.1:2080
 ```
 
 oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting
 `PI_PROXY` (or its `PI_PROXY_CURSOR` override) ensures Cursor models, including
-Grok, reach ModelTap. For fish, use `set -x PI_PROXY http://127.0.0.1:8080`
+Grok, reach ModelTap. For fish, use `set -x PI_PROXY http://127.0.0.1:2080`
 (and set `NODE_EXTRA_CA_CERTS` similarly).
 Without this setting, MITM requests can fail certificate verification and some
 clients may misleadingly report that their Google API key or OAuth credential is
@@ -79,7 +79,7 @@ and pricing rules. The following shows the equivalent local configuration:
 
 ```yaml
 proxy:
-  listen: 127.0.0.1:8080
+  listen: 127.0.0.1:2080
 
 logging:
   level: info
@@ -236,7 +236,7 @@ overlapping parent and child domains to different sites; configuration
 validation rejects ambiguous domain trees.
 
 The inbound proxy does not require client authentication, including when
-`proxy.listen` uses a non-loopback address such as `0.0.0.0:8080`. A non-loopback
+`proxy.listen` uses a non-loopback address such as `0.0.0.0:2080`. A non-loopback
 listener must be protected with a host firewall, private network, or another
 trusted access-control layer to avoid operating an open proxy.
 

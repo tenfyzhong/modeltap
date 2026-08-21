@@ -123,7 +123,15 @@ fn config_sample_is_valid_without_provider_type_configuration() {
     let config = Config::from_yaml(include_str!("../config.sample.yaml")).unwrap();
     let grok = config.sites.iter().find(|site| site.id == "grok").unwrap();
 
+    assert_eq!(config.proxy.listen, "127.0.0.1:2080");
     assert_eq!(grok.hosts, ["api.x.ai"]);
+}
+
+#[test]
+fn defaults_the_proxy_listener_to_port_2080() {
+    let config = Config::from_yaml("pricing: {timezone: Asia/Shanghai}\n").unwrap();
+
+    assert_eq!(config.proxy.listen, "127.0.0.1:2080");
 }
 
 #[test]
