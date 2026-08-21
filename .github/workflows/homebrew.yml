@@ -1,23 +1,131 @@
-name: Bump Homebrew formula
+name: Build Homebrew bottle and bump formula
 
 on:
   push:
     tags:
       - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Git tag to package as a Homebrew bottle
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: homebrew-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  homebrew:
-    runs-on: ubuntu-latest
+  bottle-and-bump-formula:
+    runs-on: macos-14
+    env:
+      TAP_REPOSITORY: tenfyzhong/homebrew-tap
+      TAP_NAME: tenfyzhong/tap
+      FORMULA: modeltap
     steps:
-      - name: Update Homebrew formula
-        uses: dawidd6/action-homebrew-bump-formula@v8
+      - name: Resolve release tag
+        id: release
+        env:
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            release_tag="$INPUT_TAG"
+          else
+            release_tag="$PUSHED_TAG"
+          fi
+
+          if [[ -z "$release_tag" ]]; then
+            echo "A release tag is required" >&2
+            exit 1
+          fi
+
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "version=${release_tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out Homebrew tap
+        uses: actions/checkout@v4
         with:
+          repository: tenfyzhong/homebrew-tap
+          ref: main
+          path: homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          tap: tenfyzhong/tap
-          formula: modeltap
-          tag: ${{ github.ref }}
-          revision: ${{ github.sha }}
-          force: false
+          persist-credentials: false
+
+      - name: Update formula source
+        env:
+          FORMULA_PATH: homebrew-tap/Formula/modeltap.rb
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -o pipefail
+          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${RELEASE_TAG}.tar.gz"
+          source_sha256="$(curl --fail --location --silent --show-error "$source_url" | shasum -a 256 | awk '{print $1}')"
+
+          if [[ -z "$source_sha256" ]]; then
+            echo "Could not calculate the source archive checksum" >&2
+            exit 1
+          fi
+
+          export SOURCE_URL="$source_url"
+          export SOURCE_SHA256="$source_sha256"
+          ruby <<'RUBY'
+          formula_path = ENV.fetch("FORMULA_PATH")
+          source_url = ENV.fetch("SOURCE_URL")
+          source_sha256 = ENV.fetch("SOURCE_SHA256")
+          formula = File.read(formula_path)
+
+          formula.sub!(/^  url ".*"$/, %(  url "#{source_url}")) or abort("Formula URL not found")
+          formula.sub!(/^  sha256 ".*"$/, %(  sha256 "#{source_sha256}")) or abort("Formula SHA-256 not found")
+          File.write(formula_path, formula)
+          RUBY
+
+      - name: Set up Homebrew tap
+        run: brew tap "$TAP_NAME" "$GITHUB_WORKSPACE/homebrew-tap"
+
+      - name: Build Homebrew bottle
+        env:
+          BOTTLE_ROOT_URL: https://github.com/tenfyzhong/homebrew-tap/releases/download/modeltap-${{ steps.release.outputs.version }}
+        run: |
+          brew uninstall --force "$FORMULA" || true
+          brew install --build-bottle "$TAP_NAME/$FORMULA"
+          brew bottle --json --no-rebuild --root-url "$BOTTLE_ROOT_URL" "$TAP_NAME/$FORMULA"
+
+      - name: Publish bottle assets
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          BOTTLE_TAG: modeltap-${{ steps.release.outputs.version }}
+        run: |
+          if ! gh release view "$BOTTLE_TAG" --repo "$TAP_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$BOTTLE_TAG" \
+              --repo "$TAP_REPOSITORY" \
+              --title "ModelTap ${{ steps.release.outputs.tag }} bottles"
+          fi
+
+          gh release upload "$BOTTLE_TAG" ./*.bottle.tar.gz \
+            --repo "$TAP_REPOSITORY" \
+            --clobber
+
+      - name: Add bottle metadata to formula
+        run: |
+          bottle_json="$(find . -maxdepth 1 -name '*.bottle.json' -print -quit)"
+          if [[ -z "$bottle_json" ]]; then
+            echo "Homebrew did not create bottle metadata" >&2
+            exit 1
+          fi
+
+          brew bottle --merge --write --no-commit "$bottle_json"
+
+      - name: Create formula bump pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          path: homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          branch: automation/modeltap-${{ steps.release.outputs.version }}
+          delete-branch: true
+          commit-message: "modeltap ${{ steps.release.outputs.tag }}"
+          title: "modeltap ${{ steps.release.outputs.tag }}"
+          body: |
+            Updates ModelTap to `${{ steps.release.outputs.tag }}` and adds the macOS arm64 bottle.
