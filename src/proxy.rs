@@ -10,7 +10,8 @@ use crate::usage::{
 };
 use bytes::Bytes;
 use http::header::{
-    CONNECTION, HOST, PROXY_AUTHORIZATION, SEC_WEBSOCKET_EXTENSIONS, UPGRADE, USER_AGENT,
+    CONNECTION, CONTENT_TYPE, HOST, PROXY_AUTHORIZATION, SEC_WEBSOCKET_EXTENSIONS, UPGRADE,
+    USER_AGENT,
 };
 use http::{HeaderValue, Request, Response, Uri};
 use http_body_util::combinators::BoxBody;
@@ -19,6 +20,7 @@ use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as ServerBuilder;
+use opentelemetry::KeyValue;
 use std::convert::Infallible;
 use std::io;
 use std::pin::Pin;
@@ -148,6 +150,7 @@ async fn handle_connection_with_telemetry(
                 telemetry: telemetry.clone(),
                 prices,
                 site: site.id.clone(),
+                local_processing_attributes: [KeyValue::new("site", site.id.clone())],
                 agent_cli: "unknown".to_owned(),
             })
         });
@@ -314,10 +317,8 @@ async fn forward_mitm_request(
                 if let (Some(observer), Some(started)) =
                     (request_processing_observer.as_ref(), started)
                 {
-                    observer.telemetry.record_local_processing_duration(
-                        &observer.site,
-                        local_processing_microseconds(started),
-                    );
+                    observer
+                        .record_local_processing_duration(local_processing_microseconds(started));
                 }
             }
             frame
@@ -335,9 +336,14 @@ async fn forward_mitm_request(
             }
             let is_sse = response
                 .headers()
-                .get(http::header::CONTENT_TYPE)
+                .get(CONTENT_TYPE)
                 .and_then(|value| value.to_str().ok())
                 .is_some_and(|value| value.starts_with("text/event-stream"));
+            let is_json = response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(is_json_content_type);
             debug!(
                 method = %method,
                 target = %target,
@@ -383,7 +389,7 @@ async fn forward_mitm_request(
                 .filter(|_| is_sse)
                 .map(|observer| (AutoStreamUsageParser::new(), observer));
             let cursor_observer = is_cursor_connect.then_some(observer.clone()).flatten();
-            let direct_observer = (!is_sse && !is_cursor_connect)
+            let direct_observer = (!is_sse && !is_cursor_connect && is_json)
                 .then_some(observer.clone())
                 .flatten();
             let completion_observer = observer.clone();
@@ -442,8 +448,7 @@ async fn forward_mitm_request(
                             if let (Some(observer), Some(started)) =
                                 (response_processing_observer.as_ref(), started)
                             {
-                                observer.telemetry.record_local_processing_duration(
-                                    &observer.site,
+                                observer.record_local_processing_duration(
                                     local_processing_microseconds(started),
                                 );
                             }
@@ -507,6 +512,15 @@ impl Drop for MeasuredBody {
 
 fn local_processing_microseconds(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1_000_000.0
+}
+
+fn is_json_content_type(value: &str) -> bool {
+    let media_type = value
+        .split_once(';')
+        .map_or(value, |(media_type, _)| media_type)
+        .trim();
+    media_type.eq_ignore_ascii_case("application/json")
+        || media_type.to_ascii_lowercase().ends_with("+json")
 }
 
 async fn send_upstream_request(
@@ -604,10 +618,7 @@ where
             if let (Some(observer), Some(started)) =
                 (upstream_processing_observer.as_ref(), started)
             {
-                observer.telemetry.record_local_processing_duration(
-                    &observer.site,
-                    local_processing_microseconds(started),
-                );
+                observer.record_local_processing_duration(local_processing_microseconds(started));
             }
             client_write.write_all(data).await?;
         }
@@ -620,10 +631,18 @@ pub struct UsageObserver {
     telemetry: Arc<Telemetry>,
     prices: Arc<PriceBook>,
     site: String,
+    local_processing_attributes: [KeyValue; 1],
     agent_cli: String,
 }
 
 impl UsageObserver {
+    fn record_local_processing_duration(&self, microseconds: f64) {
+        self.telemetry
+            .record_local_processing_duration_with_attributes(
+                microseconds,
+                &self.local_processing_attributes,
+            );
+    }
     fn record(&self, model: &str, usage: &crate::usage::TokenUsage) {
         self.telemetry
             .record_usage(&self.site, model, &self.agent_cli, usage, &self.prices);
@@ -709,12 +728,20 @@ fn connector_for_site(
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_cli, tunnel_websocket};
+    use super::{agent_cli, is_json_content_type, tunnel_websocket};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
     fn identifies_oh_my_pi_from_cursor_cli_headers() {
         assert_eq!(agent_cli(None, false, true), "oh_my_pi",);
+    }
+
+    #[test]
+    fn identifies_json_media_types_without_matching_other_response_bodies() {
+        assert!(is_json_content_type("application/json; charset=utf-8"));
+        assert!(is_json_content_type("application/problem+json"));
+        assert!(!is_json_content_type("text/plain"));
+        assert!(!is_json_content_type("application/octet-stream"));
     }
 
     #[tokio::test]

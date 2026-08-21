@@ -225,34 +225,55 @@ impl CursorUsageParser {
     }
 
     pub fn push_request(&mut self, bytes: &[u8]) -> Option<String> {
-        self.request_buffer.extend_from_slice(bytes);
-        while let Some(message) = take_connect_message(&mut self.request_buffer) {
+        let mut buffer = std::mem::take(&mut self.request_buffer);
+        buffer.extend_from_slice(bytes);
+        if oversized_connect_message(&buffer) {
+            return None;
+        }
+        let mut consumed = 0;
+        while let Some(message) = connect_message(&buffer[consumed..]) {
+            consumed += message.len() + 5;
             if let Some(model) = cursor_model_from_request(&message) {
                 self.model = Some(model.clone());
+                compact_buffer(&mut buffer, consumed);
+                self.request_buffer = buffer;
                 return Some(model);
             }
         }
+        compact_buffer(&mut buffer, consumed);
+        self.request_buffer = buffer;
         None
     }
 
     pub fn push_response(&mut self, bytes: &[u8]) -> Option<ParsedUsage> {
-        self.response_buffer.extend_from_slice(bytes);
-        while let Some(message) = take_connect_message(&mut self.response_buffer) {
+        let mut buffer = std::mem::take(&mut self.response_buffer);
+        buffer.extend_from_slice(bytes);
+        if oversized_connect_message(&buffer) {
+            return None;
+        }
+        let mut consumed = 0;
+        while let Some(message) = connect_message(&buffer[consumed..]) {
+            consumed += message.len() + 5;
             let Some(interaction) = protobuf_length_field(&message, 1) else {
                 continue;
             };
             if let Some(token_delta) = protobuf_length_field(interaction, 8)
                 .and_then(|value| protobuf_varint_field(value, 1))
             {
-                return Some(ParsedUsage {
+                let usage = ParsedUsage {
                     model: self.model.clone(),
                     tokens: TokenUsage {
                         output: token_delta,
                         ..TokenUsage::default()
                     },
-                });
+                };
+                compact_buffer(&mut buffer, consumed);
+                self.response_buffer = buffer;
+                return Some(usage);
             }
         }
+        compact_buffer(&mut buffer, consumed);
+        self.response_buffer = buffer;
         None
     }
 
@@ -464,6 +485,8 @@ struct WebSocketFrame {
 struct PerMessageDeflate {
     decompressor: Decompress,
     server_no_context_takeover: bool,
+    input: Vec<u8>,
+    output: Vec<u8>,
 }
 
 pub struct WebSocketUsageParser {
@@ -495,6 +518,8 @@ impl WebSocketUsageParser {
                 PerMessageDeflate {
                     decompressor: Decompress::new(false),
                     server_no_context_takeover,
+                    input: Vec::new(),
+                    output: Vec::new(),
                 }
             }),
         }
@@ -581,27 +606,36 @@ impl WebSocketUsageParser {
         if !compressed {
             return self.process_text(payload);
         }
-        let payload = self.decompress_message(payload)?;
-        self.process_text(&payload)
+        self.decompress_message(payload)?;
+        let payload = std::mem::take(&mut self.permessage_deflate.as_mut()?.output);
+        let usage = self.process_text(&payload);
+        self.permessage_deflate.as_mut()?.output = payload;
+        usage
     }
 
-    fn decompress_message(&mut self, payload: &[u8]) -> Option<Vec<u8>> {
+    fn decompress_message(&mut self, payload: &[u8]) -> Option<()> {
         let compression = self.permessage_deflate.as_mut()?;
-        let mut input = Vec::with_capacity(payload.len() + 4);
-        input.extend_from_slice(payload);
-        input.extend_from_slice(&[0x00, 0x00, 0xff, 0xff]);
-        let mut output = Vec::with_capacity(payload.len().saturating_mul(2).max(1024));
+        compression.input.clear();
+        compression.input.extend_from_slice(payload);
+        compression
+            .input
+            .extend_from_slice(&[0x00, 0x00, 0xff, 0xff]);
+        compression.output.clear();
         let mut consumed = 0;
-        while consumed < input.len() {
-            if output.len() >= MAX_WEBSOCKET_MESSAGE_BYTES {
+        while consumed < compression.input.len() {
+            if compression.output.len() >= MAX_WEBSOCKET_MESSAGE_BYTES {
                 return None;
             }
-            output.reserve(16 * 1024);
+            compression.output.reserve(16 * 1024);
             let input_before = compression.decompressor.total_in();
             let output_before = compression.decompressor.total_out();
             compression
                 .decompressor
-                .decompress_vec(&input[consumed..], &mut output, FlushDecompress::Sync)
+                .decompress_vec(
+                    &compression.input[consumed..],
+                    &mut compression.output,
+                    FlushDecompress::Sync,
+                )
                 .ok()?;
             let input_progress = (compression.decompressor.total_in() - input_before) as usize;
             let output_progress = (compression.decompressor.total_out() - output_before) as usize;
@@ -610,13 +644,13 @@ impl WebSocketUsageParser {
             }
             consumed = consumed.saturating_add(input_progress);
         }
-        if output.len() > MAX_WEBSOCKET_MESSAGE_BYTES {
+        if compression.output.len() > MAX_WEBSOCKET_MESSAGE_BYTES {
             return None;
         }
         if compression.server_no_context_takeover {
             compression.decompressor.reset(false);
         }
-        Some(output)
+        Some(())
     }
 
     fn extend_fragments(&mut self, payload: &[u8]) {
@@ -735,21 +769,32 @@ fn find_event_end_from(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-fn take_connect_message(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
+fn connect_message(buffer: &[u8]) -> Option<&[u8]> {
     if buffer.len() < 5 {
         return None;
     }
     let length = u32::from_be_bytes(buffer[1..5].try_into().ok()?) as usize;
-    if length > MAX_CURSOR_CONNECT_MESSAGE_BYTES {
-        buffer.clear();
-        return None;
-    }
+    (length <= MAX_CURSOR_CONNECT_MESSAGE_BYTES).then_some(())?;
     let end = 5usize.checked_add(length)?;
     if buffer.len() < end {
         return None;
     }
-    buffer.drain(..5);
-    Some(buffer.drain(..length).collect())
+    Some(&buffer[5..end])
+}
+
+fn oversized_connect_message(buffer: &[u8]) -> bool {
+    buffer.len() >= 5
+        && u32::from_be_bytes(buffer[1..5].try_into().expect("buffer contains header")) as usize
+            > MAX_CURSOR_CONNECT_MESSAGE_BYTES
+}
+
+fn compact_buffer(buffer: &mut Vec<u8>, consumed: usize) {
+    if consumed == buffer.len() {
+        buffer.clear();
+    } else if consumed > 0 {
+        buffer.copy_within(consumed.., 0);
+        buffer.truncate(buffer.len() - consumed);
+    }
 }
 
 fn cursor_model_from_request(message: &[u8]) -> Option<String> {
