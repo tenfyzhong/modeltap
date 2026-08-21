@@ -9,7 +9,7 @@ use opentelemetry_otlp::{MetricExporter, Protocol, WithExportConfig};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use thiserror::Error;
-use tracing::info;
+use tracing::debug;
 
 #[derive(Debug, Error)]
 pub enum TelemetryError {
@@ -142,17 +142,16 @@ impl Telemetry {
             let mut attributes = base.clone();
             attributes.push(KeyValue::new("type", kind));
             self.tokens.add(amount, &attributes);
-            if let Some(price) = price.as_ref().and_then(|price| price.rate(token_type)) {
+            if let Some(price) = price.as_ref().and_then(|price| price.rate_f64(token_type)) {
                 let mut attributes = base.clone();
                 attributes.push(KeyValue::new("price_period", period.unwrap_or("unknown")));
                 attributes.push(KeyValue::new("currency", currency.clone()));
-                let value =
-                    price.to_string().parse::<f64>().unwrap_or(0.0) * amount as f64 / 1_000_000.0;
+                let value = price * amount as f64 / 1_000_000.0;
                 self.cost.add(value, &attributes);
                 total_cost += value;
             }
         }
-        info!(
+        debug!(
             report = %usage_report_summary(site, model, agent_cli, usage),
             currency = %currency,
             price_period = period.unwrap_or("unknown"),

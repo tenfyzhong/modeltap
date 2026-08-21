@@ -1,5 +1,7 @@
 use flate2::{Decompress, FlushDecompress};
+use serde::Deserialize;
 use serde_json::Value;
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TokenUsage {
@@ -24,6 +26,58 @@ pub enum Provider {
     DeepSeek,
     Gemini,
     Cursor,
+}
+
+#[derive(Debug, Deserialize)]
+struct UsageDetails {
+    #[serde(default)]
+    cached_tokens: Option<u64>,
+    #[serde(default)]
+    cache_write_tokens: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct UsagePayload {
+    #[serde(default)]
+    prompt_tokens: Option<u64>,
+    #[serde(default)]
+    input_tokens: Option<u64>,
+    #[serde(default)]
+    completion_tokens: Option<u64>,
+    #[serde(default)]
+    output_tokens: Option<u64>,
+    #[serde(default)]
+    cache_read_input_tokens: Option<u64>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    prompt_tokens_details: Option<UsageDetails>,
+    #[serde(default)]
+    input_tokens_details: Option<UsageDetails>,
+    #[serde(rename = "promptTokenCount", default)]
+    prompt_token_count: Option<u64>,
+    #[serde(rename = "cachedContentTokenCount", default)]
+    cached_content_token_count: Option<u64>,
+    #[serde(rename = "totalTokenCount", default)]
+    total_token_count: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct UsageEvent {
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(rename = "modelVersion", default)]
+    model_version: Option<String>,
+    #[serde(default)]
+    usage: Option<UsagePayload>,
+    #[serde(rename = "usageMetadata", default)]
+    usage_metadata: Option<UsagePayload>,
+    #[serde(default)]
+    response: Option<Box<UsageEvent>>,
+    #[serde(default)]
+    message: Option<Box<UsageEvent>>,
+    #[serde(rename = "type", default)]
+    kind: Option<String>,
 }
 
 pub fn permessage_deflate_server_no_context_takeover(value: &str) -> Option<bool> {
@@ -57,14 +111,14 @@ impl Provider {
     }
 
     pub fn parse_json(self, bytes: &[u8]) -> Option<ParsedUsage> {
-        let value: Value = serde_json::from_slice(bytes).ok()?;
+        let value: UsageEvent = serde_json::from_slice(bytes).ok()?;
         self.parse_value(&value)
     }
 
-    fn parse_value(self, value: &Value) -> Option<ParsedUsage> {
+    fn parse_value(self, value: &UsageEvent) -> Option<ParsedUsage> {
         match self {
             Self::OpenAiChat | Self::OpenAiEmbedding => parse_openai(value),
-            Self::OpenAiResponses => parse_openai(value.get("response").unwrap_or(value)),
+            Self::OpenAiResponses => parse_openai(value.response.as_deref().unwrap_or(value)),
             Self::Anthropic => parse_anthropic(value),
             Self::DeepSeek => parse_deepseek(value),
             Self::Gemini => parse_gemini(value),
@@ -86,63 +140,68 @@ impl Provider {
 }
 
 pub fn auto_parse_json(bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
-    let value: Value = serde_json::from_slice(bytes).ok()?;
+    let value: UsageEvent = serde_json::from_slice(bytes).ok()?;
     auto_parse_value(&value)
 }
 
-fn auto_parse_value(value: &Value) -> Option<(Provider, ParsedUsage)> {
-    let provider = if value.get("usageMetadata").is_some()
+fn auto_parse_value(value: &UsageEvent) -> Option<(Provider, ParsedUsage)> {
+    let provider = if value.usage_metadata.is_some()
         || value
-            .get("response")
-            .is_some_and(|response| response.get("usageMetadata").is_some())
+            .response
+            .as_deref()
+            .is_some_and(|response| response.usage_metadata.is_some())
     {
         Provider::Gemini
-    } else if value.get("response").is_some()
+    } else if value.response.is_some()
         || value
-            .get("type")
-            .and_then(Value::as_str)
+            .kind
+            .as_deref()
             .is_some_and(|kind| kind.starts_with("response."))
     {
         Provider::OpenAiResponses
-    } else if value.get("message").is_some()
+    } else if value.message.is_some()
         || value
-            .get("type")
-            .and_then(Value::as_str)
+            .kind
+            .as_deref()
             .is_some_and(|kind| kind.starts_with("message_"))
         || value
-            .get("usage")
-            .is_some_and(|usage| usage.get("input_tokens").is_some())
+            .usage
+            .as_ref()
+            .is_some_and(|usage| usage.input_tokens.is_some())
     {
         Provider::Anthropic
     } else if value
-        .get("usage")
-        .is_some_and(|usage| usage.get("prompt_tokens").is_some())
+        .usage
+        .as_ref()
+        .is_some_and(|usage| usage.prompt_tokens.is_some())
     {
         Provider::OpenAiChat
     } else {
         return None;
     };
-    provider.parse_value(&value).map(|usage| (provider, usage))
+    provider.parse_value(value).map(|usage| (provider, usage))
 }
 
-fn model_from_value(value: &Value) -> Option<String> {
+fn model_from_value(value: &UsageEvent) -> Option<String> {
     [
-        value.get("model"),
-        value.get("modelVersion"),
+        value.model.as_deref(),
+        value.model_version.as_deref(),
         value
-            .get("response")
-            .and_then(|response| response.get("model")),
+            .response
+            .as_deref()
+            .and_then(|response| response.model.as_deref()),
         value
-            .get("response")
-            .and_then(|response| response.get("modelVersion")),
+            .response
+            .as_deref()
+            .and_then(|response| response.model_version.as_deref()),
         value
-            .get("message")
-            .and_then(|message| message.get("model")),
+            .message
+            .as_deref()
+            .and_then(|message| message.model.as_deref()),
     ]
     .into_iter()
     .flatten()
-    .find_map(Value::as_str)
-    .filter(|model| !model.is_empty())
+    .find(|model| !model.is_empty())
     .map(ToOwned::to_owned)
 }
 
@@ -216,17 +275,20 @@ pub struct StreamUsageParser {
 pub struct AutoStreamUsageParser {
     buffer: Vec<u8>,
     consumed: usize,
+    scan_from: usize,
     model: Option<String>,
     latest: Option<(Provider, ParsedUsage)>,
 }
 
 const BUFFER_COMPACTION_THRESHOLD: usize = 64 * 1024;
+const MAX_SSE_EVENT_BYTES: usize = 16 * 1024 * 1024;
 
 impl AutoStreamUsageParser {
     pub fn new() -> Self {
         Self {
             buffer: Vec::new(),
             consumed: 0,
+            scan_from: 0,
             model: None,
             latest: None,
         }
@@ -235,15 +297,30 @@ impl AutoStreamUsageParser {
     pub fn push(&mut self, bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
         self.buffer.extend_from_slice(bytes);
         let mut result = None;
-        while let Some(event_length) = find_event_end(&self.buffer[self.consumed..]) {
-            let event_end = self.consumed + event_length;
-            let event = self.buffer[self.consumed..event_end].to_vec();
+        while let Some(event_end) = find_event_end_from(&self.buffer, self.scan_from) {
+            let separator =
+                if event_end >= 4 && self.buffer[event_end - 4..event_end] == *b"\r\n\r\n" {
+                    4
+                } else {
+                    2
+                };
+            let parsed = parse_sse_event(
+                &self.buffer[self.consumed..event_end - separator],
+                self.model.is_none(),
+            );
             self.consumed = event_end;
-            let separator = if event.ends_with(b"\r\n\r\n") { 4 } else { 2 };
-            if let Some(usage) = self.process_event(&event[..event.len() - separator]) {
+            self.scan_from = event_end;
+            if let Some(usage) = self.process_event(parsed) {
                 result = Some(usage);
             }
         }
+        if self.buffer.len() - self.consumed > MAX_SSE_EVENT_BYTES {
+            self.buffer.clear();
+            self.consumed = 0;
+            self.scan_from = 0;
+            return result;
+        }
+        self.scan_from = self.buffer.len().saturating_sub(3).max(self.consumed);
         self.compact_buffer();
         result
     }
@@ -252,45 +329,21 @@ impl AutoStreamUsageParser {
         if self.consumed == self.buffer.len() {
             self.buffer.clear();
             self.consumed = 0;
+            self.scan_from = 0;
         } else if self.consumed >= BUFFER_COMPACTION_THRESHOLD {
             self.buffer.copy_within(self.consumed.., 0);
             self.buffer.truncate(self.buffer.len() - self.consumed);
+            self.scan_from = self.scan_from.saturating_sub(self.consumed);
             self.consumed = 0;
         }
     }
 
-    fn process_event(&mut self, event: &[u8]) -> Option<(Provider, ParsedUsage)> {
-        let is_done = contains_bytes(event, b"data: [DONE]");
-        let is_terminal = contains_bytes(event, b"event: message_stop")
-            || contains_bytes(event, b"event: response.completed");
-        let has_usage =
-            contains_bytes(event, b"\"usage\"") || contains_bytes(event, b"\"usageMetadata\"");
-        let needs_model = self.model.is_none()
-            && (contains_bytes(event, b"\"model\"") || contains_bytes(event, b"\"modelVersion\""));
-        if !is_done && !is_terminal && !has_usage && !needs_model {
-            return None;
-        }
-
-        let event = std::str::from_utf8(event).ok()?;
-        let mut event_name = "";
-        let mut data = String::new();
-        for line in event.lines() {
-            let line = line.trim_end_matches('\r');
-            if let Some(value) = line.strip_prefix("event:") {
-                event_name = value.trim();
-            } else if let Some(value) = line.strip_prefix("data:") {
-                if !data.is_empty() {
-                    data.push('\n');
-                }
-                data.push_str(value.trim_start());
-            }
-        }
-        if data == "[DONE]" {
+    fn process_event(&mut self, event: SseEvent) -> Option<(Provider, ParsedUsage)> {
+        if event.is_done {
             return self.latest.clone();
         }
 
-        if has_usage || needs_model {
-            let value: Value = serde_json::from_str(&data).ok()?;
+        if let Some(value) = event.value {
             if self.model.is_none() {
                 self.model = model_from_value(&value);
             }
@@ -308,7 +361,8 @@ impl AutoStreamUsageParser {
                 self.latest = Some((provider, usage));
             }
         }
-        matches!(event_name, "message_stop" | "response.completed")
+        event
+            .is_terminal
             .then(|| self.latest.clone())
             .flatten()
             .or_else(|| {
@@ -318,6 +372,82 @@ impl AutoStreamUsageParser {
                     .cloned()
             })
     }
+}
+
+struct SseEvent {
+    is_done: bool,
+    is_terminal: bool,
+    value: Option<UsageEvent>,
+}
+
+fn parse_sse_event(event: &[u8], needs_model: bool) -> SseEvent {
+    let mut event_name = &[][..];
+    let mut data = None;
+    for line in event.split(|byte| *byte == b'\n') {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        if let Some(value) = line.strip_prefix(b"event:") {
+            event_name = trim_ascii(value);
+        } else if let Some(value) = line.strip_prefix(b"data:") {
+            append_sse_data(&mut data, trim_ascii_start(value));
+        }
+    }
+    let data = data.unwrap_or(Cow::Borrowed(&[]));
+    let is_done = trim_ascii(&data) == b"[DONE]";
+    let is_terminal = matches!(event_name, b"message_stop" | b"response.completed");
+    let (has_usage, has_model) = json_fields_of_interest(&data, needs_model);
+    let value = (has_usage || has_model)
+        .then(|| serde_json::from_slice(&data).ok())
+        .flatten();
+    SseEvent {
+        is_done,
+        is_terminal,
+        value,
+    }
+}
+
+fn append_sse_data<'a>(data: &mut Option<Cow<'a, [u8]>>, value: &'a [u8]) {
+    match data.take() {
+        None => *data = Some(Cow::Borrowed(value)),
+        Some(Cow::Borrowed(previous)) => {
+            let mut joined = Vec::with_capacity(previous.len() + value.len() + 1);
+            joined.extend_from_slice(previous);
+            joined.push(b'\n');
+            joined.extend_from_slice(value);
+            *data = Some(Cow::Owned(joined));
+        }
+        Some(Cow::Owned(mut joined)) => {
+            joined.push(b'\n');
+            joined.extend_from_slice(value);
+            *data = Some(Cow::Owned(joined));
+        }
+    }
+}
+
+fn trim_ascii(bytes: &[u8]) -> &[u8] {
+    bytes.trim_ascii()
+}
+
+fn trim_ascii_start(bytes: &[u8]) -> &[u8] {
+    bytes.trim_ascii_start()
+}
+
+fn json_fields_of_interest(bytes: &[u8], needs_model: bool) -> (bool, bool) {
+    let mut has_usage = false;
+    let mut has_model = false;
+    for index in 0..bytes.len() {
+        if bytes[index] != b'\"' {
+            continue;
+        }
+        let field = &bytes[index..];
+        has_usage |= field.starts_with(b"\"usage\"") || field.starts_with(b"\"usageMetadata\"");
+        if needs_model {
+            has_model |= field.starts_with(b"\"model\"") || field.starts_with(b"\"modelVersion\"");
+        }
+        if has_usage && (!needs_model || has_model) {
+            break;
+        }
+    }
+    (has_usage, has_model)
 }
 
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -574,20 +704,20 @@ impl StreamUsageParser {
 }
 
 fn find_event_end(bytes: &[u8]) -> Option<usize> {
-    bytes
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .map(|position| position + 4)
-        .or_else(|| {
-            bytes
-                .windows(2)
-                .position(|window| window == b"\n\n")
-                .map(|position| position + 2)
-        })
+    find_event_end_from(bytes, 0)
 }
 
-fn contains_bytes(bytes: &[u8], needle: &[u8]) -> bool {
-    bytes.windows(needle.len()).any(|window| window == needle)
+fn find_event_end_from(bytes: &[u8], start: usize) -> Option<usize> {
+    let start = start.min(bytes.len().saturating_sub(1));
+    for index in start..bytes.len().saturating_sub(1) {
+        if bytes[index] == b'\n' && bytes[index + 1] == b'\n' {
+            return Some(index + 2);
+        }
+        if index + 3 < bytes.len() && bytes[index..index + 4] == *b"\r\n\r\n" {
+            return Some(index + 4);
+        }
+    }
+    None
 }
 
 fn take_connect_message(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
@@ -737,29 +867,20 @@ fn websocket_frame(bytes: &[u8]) -> Option<WebSocketFrame> {
     })
 }
 
-fn parse_openai(value: &Value) -> Option<ParsedUsage> {
-    let usage = value.get("usage")?;
-    if usage.is_null() {
-        return None;
-    }
-    let input_total = number(usage, "prompt_tokens").or_else(|| number(usage, "input_tokens"))?;
-    let output = number(usage, "completion_tokens")
-        .or_else(|| number(usage, "output_tokens"))
-        .unwrap_or(0);
+fn parse_openai(value: &UsageEvent) -> Option<ParsedUsage> {
+    let usage = value.usage.as_ref()?;
+    let input_total = usage.prompt_tokens.or(usage.input_tokens)?;
+    let output = usage.completion_tokens.or(usage.output_tokens).unwrap_or(0);
     let details = usage
-        .get("prompt_tokens_details")
-        .or_else(|| usage.get("input_tokens_details"));
-    let cache_read = details
-        .and_then(|value| number(value, "cached_tokens"))
-        .unwrap_or(0);
+        .prompt_tokens_details
+        .as_ref()
+        .or(usage.input_tokens_details.as_ref());
+    let cache_read = details.and_then(|value| value.cached_tokens).unwrap_or(0);
     let cache_write = details
-        .and_then(|value| number(value, "cache_write_tokens"))
+        .and_then(|value| value.cache_write_tokens)
         .unwrap_or(0);
     Some(ParsedUsage {
-        model: value
-            .get("model")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
+        model: value.model.clone(),
         tokens: TokenUsage {
             input: input_total.saturating_sub(cache_read.saturating_add(cache_write)),
             output,
@@ -769,57 +890,50 @@ fn parse_openai(value: &Value) -> Option<ParsedUsage> {
     })
 }
 
-fn parse_anthropic(value: &Value) -> Option<ParsedUsage> {
+fn parse_anthropic(value: &UsageEvent) -> Option<ParsedUsage> {
     let usage = value
-        .get("usage")
-        .or_else(|| value.get("message")?.get("usage"))?;
-    let input = number(usage, "input_tokens")?;
-    let output = number(usage, "output_tokens").unwrap_or(0);
-    let model = value
-        .get("model")
-        .or_else(|| {
-            value
-                .get("message")
-                .and_then(|message| message.get("model"))
-        })
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned);
+        .usage
+        .as_ref()
+        .or_else(|| value.message.as_deref()?.usage.as_ref())?;
+    let input = usage.input_tokens?;
+    let output = usage.output_tokens.unwrap_or(0);
+    let model = value.model.clone().or_else(|| {
+        value
+            .message
+            .as_deref()
+            .and_then(|message| message.model.clone())
+    });
     Some(ParsedUsage {
         model,
         tokens: TokenUsage {
             input,
             output,
-            cache_read: number(usage, "cache_read_input_tokens").unwrap_or(0),
-            cache_write: number(usage, "cache_creation_input_tokens").unwrap_or(0),
+            cache_read: usage.cache_read_input_tokens.unwrap_or(0),
+            cache_write: usage.cache_creation_input_tokens.unwrap_or(0),
         },
     })
 }
 
-fn parse_deepseek(value: &Value) -> Option<ParsedUsage> {
-    if value.get("message").is_some() {
+fn parse_deepseek(value: &UsageEvent) -> Option<ParsedUsage> {
+    if value.message.is_some() {
         return parse_anthropic(value);
     }
-    let usage = value.get("usage")?;
-    if usage.get("cache_read_input_tokens").is_some()
-        || usage.get("cache_creation_input_tokens").is_some()
-    {
+    let usage = value.usage.as_ref()?;
+    if usage.cache_read_input_tokens.is_some() || usage.cache_creation_input_tokens.is_some() {
         parse_anthropic(value)
     } else {
         parse_openai(value)
     }
 }
 
-fn parse_gemini(value: &Value) -> Option<ParsedUsage> {
-    let value = value.get("response").unwrap_or(value);
-    let usage = value.get("usageMetadata")?;
-    let prompt = number(usage, "promptTokenCount")?;
-    let cache_read = number(usage, "cachedContentTokenCount").unwrap_or(0);
-    let total = number(usage, "totalTokenCount")?;
+fn parse_gemini(value: &UsageEvent) -> Option<ParsedUsage> {
+    let value = value.response.as_deref().unwrap_or(value);
+    let usage = value.usage_metadata.as_ref()?;
+    let prompt = usage.prompt_token_count?;
+    let cache_read = usage.cached_content_token_count.unwrap_or(0);
+    let total = usage.total_token_count?;
     Some(ParsedUsage {
-        model: value
-            .get("modelVersion")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
+        model: value.model_version.clone(),
         tokens: TokenUsage {
             input: prompt.saturating_sub(cache_read),
             output: total.saturating_sub(prompt),
@@ -827,8 +941,4 @@ fn parse_gemini(value: &Value) -> Option<ParsedUsage> {
             cache_write: 0,
         },
     })
-}
-
-fn number(value: &Value, key: &str) -> Option<u64> {
-    value.get(key)?.as_u64()
 }

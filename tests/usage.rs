@@ -67,6 +67,52 @@ fn retains_the_model_from_an_early_openai_event_without_usage() {
 }
 
 #[test]
+fn accepts_sse_fields_without_spaces_or_with_tabs() {
+    let mut parser = AutoStreamUsageParser::new();
+    assert!(parser
+        .push(b"data:{\"model\":\"gpt-5-mini\",\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\n")
+        .is_none());
+
+    let (_, usage) = parser.push(b"data:\t[DONE]\n\n").unwrap();
+
+    assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
+    assert_eq!(usage.tokens.output, 20);
+}
+
+#[test]
+fn ignores_an_empty_sse_event() {
+    let mut parser = AutoStreamUsageParser::new();
+    assert!(parser.push(b"\n\n").is_none());
+    assert!(
+        parser
+            .push(b"data: {\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\n")
+            .is_none()
+    );
+    assert!(parser.push(b"data: [DONE]\n\n").is_some());
+}
+
+#[test]
+fn parses_a_large_sse_event_split_across_tiny_transport_chunks() {
+    let mut parser = AutoStreamUsageParser::new();
+    let event = format!(
+        "data: {{\"model\":\"gpt-5-mini\",\"choices\":[{{\"delta\":{{\"content\":\"{}\"}}}}]}}\n\n",
+        "x".repeat(128 * 1024)
+    );
+    for byte in event.as_bytes() {
+        assert!(parser.push(std::slice::from_ref(byte)).is_none());
+    }
+    assert!(
+        parser
+            .push(b"data: {\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\n")
+            .is_none()
+    );
+
+    let (_, usage) = parser.push(b"data:[DONE]\n\n").unwrap();
+    assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
+    assert_eq!(usage.tokens.output, 20);
+}
+
+#[test]
 fn parses_cursor_connect_usage_for_any_requested_model() {
     let mut parser = CursorUsageParser::new();
     let model = "glm-4.7";
