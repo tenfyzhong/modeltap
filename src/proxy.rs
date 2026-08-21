@@ -21,8 +21,10 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as ServerBuilder;
 use std::convert::Infallible;
 use std::io;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Instant;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -213,6 +215,7 @@ async fn forward_mitm_request(
     egress: EgressConnector,
     observer: Option<UsageObserver>,
 ) -> Result<Response<ProxyBody>, Infallible> {
+    let request_started = Instant::now();
     let path_and_query = request
         .uri()
         .path_and_query()
@@ -312,7 +315,6 @@ async fn forward_mitm_request(
         .map_err(box_error)
         .boxed()
     });
-    let request_started = Instant::now();
     match send_upstream_request(&egress, request, upgrade_requested).await {
         Ok(mut response) => {
             if let Some(observer) = observer.as_ref() {
@@ -371,59 +373,71 @@ async fn forward_mitm_request(
                 .map(|observer| (AutoStreamUsageParser::new(), observer));
             let cursor_observer = is_cursor_connect.then_some(observer.clone()).flatten();
             let direct_observer = (!is_sse && !is_cursor_connect)
-                .then_some(observer)
+                .then_some(observer.clone())
                 .flatten();
+            let completion_observer = observer.clone();
             let mut direct_recorded = false;
-            Ok(response.map(move |body| {
-                body.map_frame(move |frame| {
-                    if let Some(data) = frame.data_ref() {
-                        debug!(
-                            bytes = data.len(),
-                            content = %body_preview(data, BODY_PREVIEW_LIMIT),
-                            "processing response body chunk"
-                        );
-                    }
-                    if let (Some((stream, observer)), Some(data)) =
-                        (parser.as_mut(), frame.data_ref())
-                    {
-                        if let Some((_protocol, usage)) = stream.push(data) {
-                            observer
-                                .record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+            Ok(response
+                .map(move |body| {
+                    body.map_frame(move |frame| {
+                        if let Some(data) = frame.data_ref() {
+                            debug!(
+                                bytes = data.len(),
+                                content = %body_preview(data, BODY_PREVIEW_LIMIT),
+                                "processing response body chunk"
+                            );
                         }
-                    } else if let (Some(parser), Some(observer), Some(data)) = (
-                        cursor_usage.as_ref(),
-                        cursor_observer.as_ref(),
-                        frame.data_ref(),
-                    ) {
-                        if let Ok(mut parser) = parser.lock() {
-                            if let Some(usage) = parser.push_response(data) {
-                                let model = usage.model.as_deref().unwrap_or("unknown");
-                                if parser.request_reported() {
-                                    observer.record_tokens(model, &usage.tokens);
-                                } else {
-                                    parser.mark_request_reported();
-                                    observer.record(model, &usage.tokens);
-                                }
-                            }
-                        }
-                    } else if let (Some(observer), Some(data)) =
-                        (direct_observer.as_ref(), frame.data_ref())
-                    {
-                        if !direct_recorded {
-                            if let Some((_protocol, usage)) = auto_parse_json(data) {
+                        if let (Some((stream, observer)), Some(data)) =
+                            (parser.as_mut(), frame.data_ref())
+                        {
+                            if let Some((_protocol, usage)) = stream.push(data) {
                                 observer.record(
                                     usage.model.as_deref().unwrap_or("unknown"),
                                     &usage.tokens,
                                 );
-                                direct_recorded = true;
+                            }
+                        } else if let (Some(parser), Some(observer), Some(data)) = (
+                            cursor_usage.as_ref(),
+                            cursor_observer.as_ref(),
+                            frame.data_ref(),
+                        ) {
+                            if let Ok(mut parser) = parser.lock() {
+                                if let Some(usage) = parser.push_response(data) {
+                                    let model = usage.model.as_deref().unwrap_or("unknown");
+                                    if parser.request_reported() {
+                                        observer.record_tokens(model, &usage.tokens);
+                                    } else {
+                                        parser.mark_request_reported();
+                                        observer.record(model, &usage.tokens);
+                                    }
+                                }
+                            }
+                        } else if let (Some(observer), Some(data)) =
+                            (direct_observer.as_ref(), frame.data_ref())
+                        {
+                            if !direct_recorded {
+                                if let Some((_protocol, usage)) = auto_parse_json(data) {
+                                    observer.record(
+                                        usage.model.as_deref().unwrap_or("unknown"),
+                                        &usage.tokens,
+                                    );
+                                    direct_recorded = true;
+                                }
                             }
                         }
-                    }
-                    frame
+                        frame
+                    })
+                    .map_err(box_error)
+                    .boxed()
                 })
-                .map_err(box_error)
-                .boxed()
-            }))
+                .map(move |body| {
+                    MeasuredBody {
+                        inner: body,
+                        observer: completion_observer,
+                        started: request_started,
+                    }
+                    .boxed()
+                }))
         }
         Err(error) => {
             warn!(method = %method, target = %target, error = %error, "MITM upstream request failed");
@@ -431,6 +445,39 @@ async fn forward_mitm_request(
                 http::StatusCode::BAD_GATEWAY,
                 "upstream connection failed",
             ))
+        }
+    }
+}
+
+struct MeasuredBody {
+    inner: ProxyBody,
+    observer: Option<UsageObserver>,
+    started: Instant,
+}
+
+impl hyper::body::Body for MeasuredBody {
+    type Data = Bytes;
+    type Error = BoxError;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        Pin::new(&mut self.inner).poll_frame(cx)
+    }
+}
+
+impl Drop for MeasuredBody {
+    fn drop(&mut self) {
+        if let Some(observer) = self.observer.as_ref() {
+            observer.telemetry.record_processing_duration(
+                &observer.site,
+                self.started
+                    .elapsed()
+                    .as_micros()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            );
         }
     }
 }

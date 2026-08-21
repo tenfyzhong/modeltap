@@ -39,8 +39,8 @@ async fn exports_usage_metrics_to_the_alloy_otlp_http_path() {
         assert!(String::from_utf8_lossy(&request).starts_with("POST /v1/metrics HTTP/1.1"));
         assert!(
             request
-                .windows(b"ai_proxy_processing_duration_seconds".len())
-                .any(|bytes| bytes == b"ai_proxy_processing_duration_seconds")
+                .windows(b"ai_proxy_processing_duration_microseconds".len())
+                .any(|bytes| bytes == b"ai_proxy_processing_duration_microseconds")
         );
         assert!(
             request
@@ -84,7 +84,7 @@ async fn exports_usage_metrics_to_the_alloy_otlp_http_path() {
         &prices,
     );
     telemetry.record_response_duration("openai", 0.042);
-    telemetry.record_processing_duration("openai", 0.123);
+    telemetry.record_processing_duration("openai", 123);
     telemetry.force_flush().unwrap();
     receiver.await.unwrap();
 }
