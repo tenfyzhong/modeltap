@@ -91,7 +91,7 @@ fn dashboard_places_selected_range_totals_at_the_bottom() {
     let cost_totals = panels.iter().find(|panel| panel["id"] == 6).unwrap();
     let highest_other_y = panels
         .iter()
-        .filter(|panel| ![6, 7, 13].contains(&panel["id"].as_i64().unwrap()))
+        .filter(|panel| ![6, 7].contains(&panel["id"].as_i64().unwrap()))
         .map(|panel| panel["gridPos"]["y"].as_i64().unwrap())
         .max()
         .unwrap();
@@ -257,21 +257,34 @@ fn dashboard_shows_p95_modeltap_chunk_processing_duration_in_microseconds() {
         .expect("chunk processing duration panel exists");
 
     assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "µs");
-    assert_eq!(panel["gridPos"]["w"], 24);
-    assert!(
-        panel["gridPos"]["y"].as_i64().unwrap()
-            > dashboard["panels"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|other| other["id"] != 13)
-                .map(|other| other["gridPos"]["y"].as_i64().unwrap())
-                .max()
-                .unwrap()
-    );
+    assert_eq!(panel["gridPos"]["w"], 12);
+    assert_eq!(panel["gridPos"]["x"], 0);
+    assert_eq!(panel["gridPos"]["y"], 47);
     assert_eq!(
         panel["targets"][0]["expr"],
         "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))"
     );
     assert_eq!(panel["targets"][0]["legendFormat"], "{{site}}");
+}
+
+#[test]
+fn dashboard_shows_average_modeltap_chunk_processing_duration_in_microseconds() {
+    let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
+        .expect("dashboard JSON is valid");
+    let panel = dashboard["panels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|panel| panel["title"] == "Average ModelTap chunk processing duration by site")
+        .expect("average chunk processing duration panel exists");
+
+    assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "µs");
+    assert_eq!(panel["gridPos"]["w"], 12);
+    assert_eq!(panel["gridPos"]["x"], 12);
+    assert_eq!(panel["gridPos"]["y"], 47);
+    assert_eq!(panel["targets"][0]["legendFormat"], "{{site}}");
+    assert_eq!(
+        panel["targets"][0]["expr"],
+        "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\"}[$__rate_interval]))"
+    );
 }
