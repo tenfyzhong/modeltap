@@ -3,7 +3,7 @@
 #   modeltap ca-init --cert certs/modeltap-ca-cert.pem --key certs/modeltap-ca-key.pem
 
 proxy:
-  listen: 127.0.0.1:8080
+  listen: 127.0.0.1:2080
 
 logging:
   level: info
