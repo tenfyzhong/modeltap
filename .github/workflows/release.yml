@@ -158,6 +158,7 @@ jobs:
     env:
       TAP_NAME: tenfyzhong/tap
       FORMULA: modeltap
+      FORMULA_PATH: ${{ github.workspace }}/homebrew-tap/Formula/modeltap.rb
     steps:
       - name: Check out Homebrew tap
         uses: actions/checkout@v4
@@ -170,7 +171,6 @@ jobs:
 
       - name: Update formula source
         env:
-          FORMULA_PATH: homebrew-tap/Formula/modeltap.rb
           RELEASE_TAG: ${{ needs.resolve-tags.outputs.release }}
         run: |
           set -o pipefail
@@ -196,7 +196,11 @@ jobs:
           RUBY
 
       - name: Set up Homebrew tap
-        run: brew tap "$TAP_NAME" "$GITHUB_WORKSPACE/homebrew-tap"
+        run: |
+          brew tap "$TAP_NAME"
+          brew trust "$TAP_NAME"
+          tap_formula_path="$(brew --repository "$TAP_NAME")/Formula/$FORMULA.rb"
+          cp "$FORMULA_PATH" "$tap_formula_path"
 
       - name: Build Homebrew bottle
         env:
@@ -260,6 +264,8 @@ jobs:
     runs-on: macos-14
     env:
       TAP_NAME: tenfyzhong/tap
+      FORMULA: modeltap
+      FORMULA_PATH: ${{ github.workspace }}/homebrew-tap/Formula/modeltap.rb
     steps:
       - name: Check out Homebrew tap
         uses: actions/checkout@v4
@@ -278,7 +284,6 @@ jobs:
 
       - name: Update formula source
         env:
-          FORMULA_PATH: homebrew-tap/Formula/modeltap.rb
           RELEASE_TAG: ${{ needs.resolve-tags.outputs.release }}
         run: |
           set -o pipefail
@@ -305,8 +310,10 @@ jobs:
 
       - name: Add bottle metadata to formula
         run: |
-          brew tap "$TAP_NAME" "$GITHUB_WORKSPACE/homebrew-tap"
+          brew tap "$TAP_NAME"
           brew trust "$TAP_NAME"
+          tap_formula_path="$(brew --repository "$TAP_NAME")/Formula/$FORMULA.rb"
+          cp "$FORMULA_PATH" "$tap_formula_path"
           bottle_json="$(find bottle -name '*.bottle.json' -print -quit)"
           if [[ -z "$bottle_json" ]]; then
             echo "Homebrew bottle metadata artifact is missing" >&2
@@ -314,6 +321,7 @@ jobs:
           fi
 
           brew bottle --merge --write --no-commit "$bottle_json"
+          cp "$tap_formula_path" "$FORMULA_PATH"
 
       - name: Create formula bump pull request
         uses: peter-evans/create-pull-request@v7
