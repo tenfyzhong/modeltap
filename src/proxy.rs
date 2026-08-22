@@ -13,7 +13,7 @@ use http::header::{
     CONNECTION, CONTENT_TYPE, HOST, PROXY_AUTHORIZATION, SEC_WEBSOCKET_EXTENSIONS, UPGRADE,
     USER_AGENT,
 };
-use http::{HeaderValue, Request, Response, Uri};
+use http::{HeaderMap, HeaderValue, Request, Response, Uri};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -252,43 +252,8 @@ async fn forward_mitm_request(
     }
     let method = request.method().clone();
     let target = request.uri().clone();
-    let is_cursor_connect = request
-        .headers()
-        .get(http::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("application/connect+proto"));
-    let is_oh_my_pi_cursor_request = is_cursor_connect
-        && request
-            .headers()
-            .get("x-ghost-mode")
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value == "true");
-    let is_oh_my_pi_cursor_cli_request = is_cursor_connect
-        && request
-            .headers()
-            .get("x-cursor-client-type")
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.eq_ignore_ascii_case("cli"));
-    let is_oh_my_pi_custom_header = request
-        .headers()
-        .get("x-oh-my-pi")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value == "true")
-        || request
-            .headers()
-            .get("x-omp")
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value == "true");
-    let user_agent = request
-        .headers()
-        .get(USER_AGENT)
-        .and_then(|value| value.to_str().ok());
-    let agent_cli = agent_cli(
-        user_agent,
-        is_oh_my_pi_cursor_request || is_oh_my_pi_custom_header,
-        is_oh_my_pi_cursor_cli_request,
-        is_cursor_connect,
-    );
+    let is_cursor_connect = is_cursor_connect_content_type(request.headers());
+    let agent_cli = agent_cli(request.headers());
     let observer = observer.map(|mut observer| {
         observer.agent_cli = agent_cli;
         observer
@@ -670,59 +635,181 @@ impl UsageObserver {
     }
 }
 
-fn agent_cli(
-    user_agent: Option<&str>,
-    is_oh_my_pi_cursor_request: bool,
-    is_oh_my_pi_cursor_cli_request: bool,
-    is_cursor_connect: bool,
-) -> String {
-    let user_agent = user_agent.unwrap_or_default().to_ascii_lowercase();
-    if is_oh_my_pi_cursor_request
-        || is_oh_my_pi_cursor_cli_request
-        || is_oh_my_pi_user_agent(&user_agent)
+fn agent_cli(headers: &HeaderMap) -> String {
+    detect_agent_cli(headers).to_owned()
+}
+
+fn detect_agent_cli(headers: &HeaderMap) -> &'static str {
+    if is_header_true(headers, "x-oh-my-pi")
+        || is_header_true(headers, "x-omp")
+        || is_header_true(headers, "x-ghost-mode")
+        || header_eq_ignore_case(headers, "x-cursor-client-type", "cli")
     {
-        "oh_my_pi".to_owned()
-    } else if is_cursor_connect {
-        "cursor".to_owned()
-    } else {
-        builtin_agent_cli(&user_agent).to_owned()
+        return "oh_my_pi";
     }
+
+    if headers.contains_key("x-claude-code-session-id")
+        || header_contains(headers, "anthropic-beta", "claude-code")
+    {
+        return "claude_code";
+    }
+
+    if header_eq_ignore_case(headers, "originator", "codex_exec")
+        || header_contains(headers, "originator", "codex")
+        || headers.contains_key("x-codex-beta-features")
+        || headers.contains_key("x-codex-window-id")
+        || headers.contains_key("x-codex-turn-metadata")
+    {
+        return "codex";
+    }
+
+    if headers.contains_key("x-gemini-api-privileged-user-id") {
+        return "gemini_cli";
+    }
+
+    if header_eq_ignore_case(headers, "originator", "opencode") {
+        return "opencode";
+    }
+
+    if header_eq_ignore_case(headers, "x-opencode-client", "pi")
+        || header_eq_ignore_case(headers, "x-openrouter-title", "pi")
+        || header_eq_ignore_case(headers, "x-billing-invoke-origin", "pi")
+    {
+        return "pi";
+    }
+
+    if header_eq_ignore_case(headers, "x-interaction-type", "conversation-user")
+        || header_eq_ignore_case(headers, "x-interaction-type", "custom-model")
+        || header_eq_ignore_case(headers, "x-initiator", "copilot")
+    {
+        return "github_copilot";
+    }
+
+    if is_cursor_connect_content_type(headers) {
+        return "cursor";
+    }
+
+    if let Some(user_agent) = headers
+        .get(USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+    {
+        let ua = user_agent.to_ascii_lowercase();
+        if is_oh_my_pi_user_agent(&ua) {
+            return "oh_my_pi";
+        }
+        return builtin_agent_cli_from_ua(&ua);
+    }
+
+    "unknown"
 }
 
-fn is_oh_my_pi_user_agent(user_agent: &str) -> bool {
-    user_agent.contains("oh-my-pi")
-        || user_agent.contains("oh_my_pi")
-        || user_agent.contains("omp/")
-        || user_agent.starts_with("omp/")
-        || user_agent.starts_with("omp ")
-        || user_agent == "omp"
+fn is_header_true(headers: &HeaderMap, name: &str) -> bool {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("true") || v == "1")
 }
 
-fn builtin_agent_cli(user_agent: &str) -> &'static str {
-    const RULES: [(&str, &str); 17] = [
-        ("claude-code/", "claude_code"),
-        ("claude-cli/", "claude_code"),
-        ("codex", "codex"),
-        ("geminicli", "gemini_cli"),
-        ("opencode", "opencode"),
-        ("pi (", "pi"),
-        ("pi/", "pi"),
-        ("pi-coding-agent", "pi"),
-        ("copilot/", "github_copilot"),
-        ("amazonq-for-cli", "amazon_q"),
-        ("roocode/", "roo_code"),
-        ("qwencode/", "qwen_code"),
-        ("factory-cli/", "factory_droid"),
-        ("charm-crush/", "crush"),
-        ("kiro-ide/", "kiro"),
-        ("qoder-cli", "qoder"),
-        ("antigravity/", "antigravity"),
-    ];
-    RULES
-        .iter()
-        .find(|(pattern, _)| user_agent.contains(pattern))
-        .map(|(_, agent_cli)| *agent_cli)
-        .unwrap_or("unknown")
+fn header_eq_ignore_case(headers: &HeaderMap, name: &str, expected: &str) -> bool {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case(expected))
+}
+
+fn header_contains(headers: &HeaderMap, name: &str, substring: &str) -> bool {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.to_ascii_lowercase().contains(substring))
+}
+
+fn is_cursor_connect_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.starts_with("application/connect+proto")
+                || v.starts_with("application/grpc-web+proto")
+        })
+}
+
+fn is_oh_my_pi_user_agent(ua: &str) -> bool {
+    ua == "omp"
+        || ua.starts_with("omp/")
+        || ua.starts_with("omp ")
+        || ua.contains(" omp/")
+        || ua.contains(" (omp/")
+        || ua.starts_with("oh-my-pi")
+        || ua.starts_with("oh_my_pi")
+        || ua.contains(" oh-my-pi")
+        || ua.contains(" oh_my_pi")
+        || ua.contains(" (oh-my-pi")
+        || ua.contains(" (oh_my_pi")
+}
+
+fn builtin_agent_cli_from_ua(ua: &str) -> &'static str {
+    if ua.starts_with("claude-code")
+        || ua.starts_with("claude-cli")
+        || ua.contains(" claude-code")
+        || ua.contains(" claude-cli")
+        || ua.contains("(claude-code")
+        || ua.contains("(claude-cli")
+    {
+        "claude_code"
+    } else if ua.starts_with("codex") || ua.contains(" codex") || ua.contains("(codex") {
+        "codex"
+    } else if ua.contains("geminicli") || ua.contains("gemini-cli") || ua.contains("gemini_cli") {
+        "gemini_cli"
+    } else if ua.starts_with("opencode") || ua.contains(" opencode") || ua.contains("(opencode") {
+        "opencode"
+    } else if ua.starts_with("pi ")
+        || ua.starts_with("pi/")
+        || ua.starts_with("pi (")
+        || ua == "pi"
+        || ua.contains(" pi ")
+        || ua.contains(" pi/")
+        || ua.contains(" pi (")
+        || ua.contains(" (pi ")
+        || ua.contains(" (pi/")
+        || ua.contains(" (pi (")
+        || ua.contains("pi-coding-agent")
+    {
+        "pi"
+    } else if ua.starts_with("copilot/")
+        || ua.starts_with("copilot ")
+        || ua.contains(" copilot/")
+        || ua.contains(" copilot ")
+        || ua.contains("github-copilot")
+        || ua.contains("github_copilot")
+    {
+        "github_copilot"
+    } else if ua.contains("amazonq-for-cli")
+        || ua.contains("amazon-q/")
+        || ua.contains("amazonq/")
+        || ua.contains("amazonq ")
+    {
+        "amazon_q"
+    } else if ua.contains("roocode/") || ua.contains("roo-code/") {
+        "roo_code"
+    } else if ua.contains("qwencode/") || ua.contains("qwen-code/") || ua.contains("qwen/") {
+        "qwen_code"
+    } else if ua.contains("factory-cli/") || ua.contains("factory-droid/") || ua.contains("droid/")
+    {
+        "factory_droid"
+    } else if ua.contains("charm-crush/") || ua.contains("crush/") {
+        "crush"
+    } else if ua.contains("kiro-ide/") || ua.contains("kiro/") {
+        "kiro"
+    } else if ua.contains("qoder-cli") || ua.contains("qoder/") {
+        "qoder"
+    } else if ua.contains("antigravity/") || ua.contains("antigravity ") {
+        "antigravity"
+    } else if ua.starts_with("cursor/") || ua.starts_with("cursor ") || ua.contains(" cursor/") {
+        "cursor"
+    } else {
+        "unknown"
+    }
 }
 
 fn error_response(status: http::StatusCode, message: &'static str) -> Response<ProxyBody> {
@@ -772,90 +859,6 @@ fn connector_for_site(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        agent_cli, is_json_content_type, should_parse_direct_json_usage, tunnel_websocket,
-    };
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    #[test]
-    fn identifies_oh_my_pi_from_cursor_cli_headers() {
-        assert_eq!(agent_cli(None, false, true, true), "oh_my_pi",);
-    }
-
-    #[test]
-    fn identifies_opencode_from_user_agent() {
-        assert_eq!(
-            agent_cli(Some("OpenCode/1.0"), false, false, false),
-            "opencode"
-        );
-    }
-
-    #[test]
-    fn identifies_builtin_agent_cli_user_agents() {
-        for (user_agent, expected) in [
-            ("claude-code/2.1.89 (cli)", "claude_code"),
-            ("codex_cli_rs/1.0", "codex"),
-            ("GeminiCLI/0.34.0/gemini-pro", "gemini_cli"),
-            ("pi (darwin 24.0; arm64)", "pi"),
-            ("pi/0.20.0 (darwin; bun/1.1.20; arm64)", "pi"),
-            ("omp/17.3.7", "oh_my_pi"),
-            ("omp/0.10.0", "oh_my_pi"),
-            ("oh-my-pi/0.2.0", "oh_my_pi"),
-            ("copilot/0.0.353 (win32)", "github_copilot"),
-            ("AmazonQ-For-CLI/1.0", "amazon_q"),
-            ("RooCode/3.53.0", "roo_code"),
-            ("QwenCode/0.14.0 (linux; x64)", "qwen_code"),
-            ("factory-cli/0.62.1", "factory_droid"),
-            ("Charm-Crush/0.1", "crush"),
-            ("kiro-ide/1.0", "kiro"),
-            ("Qoder-Cli/1.0", "qoder"),
-            ("antigravity/2.0.1 darwin/arm64", "antigravity"),
-        ] {
-            assert_eq!(agent_cli(Some(user_agent), false, false, false), expected);
-        }
-    }
-
-    #[test]
-    fn identifies_cursor_connect_requests() {
-        assert_eq!(agent_cli(None, false, false, true), "cursor");
-    }
-
-    #[test]
-    fn identifies_json_media_types_without_matching_other_response_bodies() {
-        assert!(is_json_content_type("application/json; charset=utf-8"));
-        assert!(is_json_content_type("application/problem+json"));
-        assert!(!is_json_content_type("text/plain"));
-        assert!(!is_json_content_type("application/octet-stream"));
-    }
-
-    #[test]
-    fn attempts_direct_json_usage_parsing_once_for_non_empty_body_data() {
-        assert!(should_parse_direct_json_usage(false, b"{"));
-        assert!(!should_parse_direct_json_usage(true, b"{"));
-        assert!(!should_parse_direct_json_usage(false, b""));
-    }
-
-    #[tokio::test]
-    async fn websocket_tunnel_forwards_server_frames() {
-        let (tunnel_client, mut client) = tokio::io::duplex(64 * 1024);
-        let (tunnel_upstream, mut upstream) = tokio::io::duplex(64 * 1024);
-        let tunnel = tokio::spawn(tunnel_websocket(tunnel_client, tunnel_upstream, None, None));
-        let payload = vec![b'x'; 64 * 1024];
-
-        client.shutdown().await.unwrap();
-        upstream.write_all(&payload).await.unwrap();
-        upstream.shutdown().await.unwrap();
-
-        let mut forwarded = vec![0; payload.len()];
-        client.read_exact(&mut forwarded).await.unwrap();
-        tunnel.await.unwrap().unwrap();
-
-        assert_eq!(forwarded, payload);
-    }
-}
-
 async fn read_headers(stream: &mut TcpStream, limit: usize) -> Result<String, ProxyError> {
     let mut bytes = Vec::new();
     while bytes.len() < limit {
@@ -891,4 +894,189 @@ fn parse_request_line(request: &str) -> Result<(&str, &str), ProxyError> {
         return Err(ProxyError::Request("invalid request line".to_owned()));
     }
     Ok((method, target))
+}
+#[cfg(test)]
+mod tests {
+    use super::{
+        agent_cli, is_json_content_type, should_parse_direct_json_usage, tunnel_websocket,
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn identifies_agent_from_characteristic_headers() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert("x-oh-my-pi", "true".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "oh_my_pi");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert("x-omp", "1".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "oh_my_pi");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_TYPE,
+            "application/connect+proto".parse().unwrap(),
+        );
+        headers.insert("x-ghost-mode", "true".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "oh_my_pi");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_TYPE,
+            "application/connect+proto".parse().unwrap(),
+        );
+        headers.insert("x-cursor-client-type", "cli".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "oh_my_pi");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert("x-claude-code-session-id", "test-session".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "claude_code");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            "anthropic-beta",
+            "claude-code-20250219,prompt-caching".parse().unwrap(),
+        );
+        assert_eq!(agent_cli(&headers), "claude_code");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert("originator", "codex_exec".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "codex");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            "x-codex-beta-features",
+            "remote_compaction_v2".parse().unwrap(),
+        );
+        assert_eq!(agent_cli(&headers), "codex");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            "x-gemini-api-privileged-user-id",
+            "user-123".parse().unwrap(),
+        );
+        assert_eq!(agent_cli(&headers), "gemini_cli");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert("originator", "opencode".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "opencode");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert("x-opencode-client", "pi".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "pi");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert("X-OpenRouter-Title", "pi".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "pi");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert("X-BILLING-INVOKE-ORIGIN", "Pi".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "pi");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert("x-interaction-type", "conversation-user".parse().unwrap());
+        assert_eq!(agent_cli(&headers), "github_copilot");
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_TYPE,
+            "application/connect+proto".parse().unwrap(),
+        );
+        assert_eq!(agent_cli(&headers), "cursor");
+    }
+
+    #[test]
+    fn identifies_builtin_agent_cli_user_agents() {
+        for (user_agent, expected) in [
+            ("claude-cli/2.1.239 (external, sdk-cli)", "claude_code"),
+            ("claude-code/2.1.89 (cli)", "claude_code"),
+            ("codex_exec/0.149.0 (Ubuntu 24.4.0; x86_64)", "codex"),
+            ("codex_cli_rs/1.0", "codex"),
+            (
+                "GeminiCLI-tui/0.56.0/simulated-model (linux; x64; GitHub)",
+                "gemini_cli",
+            ),
+            ("GeminiCLI/0.34.0/gemini-pro", "gemini_cli"),
+            ("gemini-cli/1.0", "gemini_cli"),
+            (
+                "opencode/1.18.21 (linux 6.17.0-1022-azure; x64)",
+                "opencode",
+            ),
+            ("OpenCode/1.0", "opencode"),
+            ("pi (darwin 24.0; arm64)", "pi"),
+            ("pi/0.20.0 (darwin; bun/1.1.20; arm64)", "pi"),
+            ("pi-coding-agent", "pi"),
+            ("omp/17.3.7", "oh_my_pi"),
+            ("omp/0.10.0", "oh_my_pi"),
+            ("oh-my-pi/0.2.0", "oh_my_pi"),
+            ("copilot/0.0.353 (win32)", "github_copilot"),
+            ("AmazonQ-For-CLI/1.0", "amazon_q"),
+            ("RooCode/3.53.0", "roo_code"),
+            ("QwenCode/0.21.15 (linux; x64)", "qwen_code"),
+            ("QwenCode/0.14.0 (linux; x64)", "qwen_code"),
+            ("factory-cli/0.62.1", "factory_droid"),
+            ("Charm-Crush/0.1", "crush"),
+            ("kiro-ide/1.0", "kiro"),
+            ("Qoder-Cli/1.0", "qoder"),
+            ("antigravity/2.0.1 darwin/arm64", "antigravity"),
+        ] {
+            let mut headers = http::HeaderMap::new();
+            headers.insert(http::header::USER_AGENT, user_agent.parse().unwrap());
+            assert_eq!(agent_cli(&headers), expected, "failed for {user_agent}");
+        }
+    }
+
+    #[test]
+    fn does_not_falsely_identify_unrelated_user_agents() {
+        for user_agent in [
+            "openapi/3.0.0",
+            "libomp/18.1.8",
+            "stomp/1.2",
+            "fastapi (0.110.0)",
+            "my-api (python)",
+            "curl/8.7.1",
+            "python-requests/2.31.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        ] {
+            let mut headers = http::HeaderMap::new();
+            headers.insert(http::header::USER_AGENT, user_agent.parse().unwrap());
+            assert_eq!(
+                agent_cli(&headers),
+                "unknown",
+                "should not match {user_agent}"
+            );
+        }
+    }
+    #[test]
+    fn identifies_json_media_types_without_matching_other_response_bodies() {
+        assert!(is_json_content_type("application/json; charset=utf-8"));
+        assert!(is_json_content_type("application/problem+json"));
+        assert!(!is_json_content_type("text/plain"));
+        assert!(!is_json_content_type("application/octet-stream"));
+    }
+
+    #[test]
+    fn attempts_direct_json_usage_parsing_once_for_non_empty_body_data() {
+        assert!(should_parse_direct_json_usage(false, b"{"));
+        assert!(!should_parse_direct_json_usage(true, b"{"));
+        assert!(!should_parse_direct_json_usage(false, b""));
+    }
+
+    #[tokio::test]
+    async fn websocket_tunnel_forwards_server_frames() {
+        let (tunnel_client, mut client) = tokio::io::duplex(64 * 1024);
+        let (tunnel_upstream, mut upstream) = tokio::io::duplex(64 * 1024);
+        let tunnel = tokio::spawn(tunnel_websocket(tunnel_client, tunnel_upstream, None, None));
+        let payload = vec![b'x'; 64 * 1024];
+
+        client.shutdown().await.unwrap();
+        upstream.write_all(&payload).await.unwrap();
+        upstream.shutdown().await.unwrap();
+
+        let mut forwarded = vec![0; payload.len()];
+        client.read_exact(&mut forwarded).await.unwrap();
+        tunnel.await.unwrap().unwrap();
+
+        assert_eq!(forwarded, payload);
+    }
 }

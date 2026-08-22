@@ -115,6 +115,8 @@ fn readme_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
     for agent in [
         "Amazon Q",
         "Roo Code",
+        "Factory Droid",
+        "Crush",
         "Kiro",
         "Qoder",
         "Antigravity",

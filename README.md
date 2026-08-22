@@ -259,11 +259,11 @@ Continue, remain `unknown` rather than risking an incorrect classification.
 
 ### Agent CLI E2E workflow
 
-[`Agent CLI E2E`](.github/workflows/agent-e2e.yml) is a manually triggered
-GitHub Actions workflow. It installs the agent CLIs, routes each request through
-ModelTap, and checks the exported Prometheus metrics for a positive request and
-token total with the expected `agent_cli` label. It does not run on pull
-requests, because it makes billable API requests.
+[`Agent CLI E2E`](.github/workflows/agent-e2e.yml) is an automated GitHub Actions
+workflow running on pull requests and main branch pushes. It installs the agent
+CLIs, routes each request through ModelTap, and checks the exported Prometheus
+metrics for a positive request and token total with the expected `agent_cli`
+label.
 
 The workflow additionally routes representative requests for every documented
 `agent_cli` value through a local HTTPS upstream. This keeps proprietary,
@@ -293,13 +293,13 @@ the vendor client was installed or authenticated in CI.
 
 | Agent | `agent_cli` | Detection | Verification |
 | --- | --- | --- | --- |
-| Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent | Real E2E workflow |
-| Codex | `codex` | `codex` User-Agent | Real E2E workflow |
-| oh-my-pi | `oh_my_pi` | `oh-my-pi` User-Agent or Cursor request headers | Real E2E workflow |
-| Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent | Real E2E workflow |
-| OpenCode | `opencode` | `opencode` User-Agent | Real E2E workflow |
-| Pi | `pi` | `pi (` User-Agent | Real E2E workflow |
-| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent | Real E2E workflow |
+| Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent, `x-claude-code-session-id` header | Real E2E workflow |
+| Codex | `codex` | `codex` User-Agent, `originator: codex_exec` header | Real E2E workflow |
+| oh-my-pi | `oh_my_pi` | `oh-my-pi`/`omp` User-Agent, `x-oh-my-pi`/`x-omp`, `x-ghost-mode`, or Cursor CLI header | Real E2E workflow |
+| Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent, `x-gemini-api-privileged-user-id` header | Real E2E workflow |
+| OpenCode | `opencode` | `opencode` User-Agent, `originator: opencode` header | Real E2E workflow |
+| Pi | `pi` | `pi` User-Agent, `x-opencode-client: pi`, `X-OpenRouter-Title: pi`, `X-BILLING-INVOKE-ORIGIN: Pi` | Real E2E workflow |
+| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent, `x-interaction-type` header | Real E2E workflow |
 | Amazon Q | `amazon_q` | `AmazonQ-For-CLI` User-Agent | Simulated protocol + User-Agent regression |
 | Roo Code | `roo_code` | `RooCode/` User-Agent | Simulated protocol + User-Agent regression |
 | Qwen Code | `qwen_code` | `QwenCode/` User-Agent | Real E2E workflow |
@@ -308,7 +308,7 @@ the vendor client was installed or authenticated in CI.
 | Kiro | `kiro` | `kiro-ide/` User-Agent | Simulated protocol + User-Agent regression |
 | Qoder | `qoder` | `Qoder-Cli` User-Agent | Simulated protocol + User-Agent regression |
 | Antigravity | `antigravity` | `antigravity/` User-Agent | Simulated protocol + User-Agent regression |
-| Cursor Agent | `cursor` | Cursor Connect/Protobuf request | Simulated protocol + User-Agent regression |
+| Cursor Agent | `cursor` | Cursor Connect/Protobuf request without oh-my-pi headers | Simulated protocol + User-Agent regression |
 
 Use a single `rates` block for a model whose prices do not vary by time. These
 rules can coexist with global `peak_windows` used by other models:
