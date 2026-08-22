@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := build
 
-.PHONY: build release test check fmt clean
+.PHONY: build release test bench check fmt clean
 
 build:
 	cargo build
@@ -10,6 +10,9 @@ release:
 
 test:
 	cargo test
+
+bench:
+	cargo bench
 
 check:
 	cargo clippy --all-targets -- -D warnings

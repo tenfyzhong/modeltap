@@ -487,11 +487,11 @@ impl Drop for MeasuredBody {
     }
 }
 
-fn local_processing_microseconds(started: Instant) -> f64 {
+pub fn local_processing_microseconds(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1_000_000.0
 }
 
-fn is_json_content_type(value: &str) -> bool {
+pub fn is_json_content_type(value: &str) -> bool {
     let media_type = value
         .split_once(';')
         .map_or(value, |(media_type, _)| media_type)
@@ -500,7 +500,7 @@ fn is_json_content_type(value: &str) -> bool {
         || media_type.to_ascii_lowercase().ends_with("+json")
 }
 
-fn should_parse_direct_json_usage(attempted: bool, data: &[u8]) -> bool {
+pub fn should_parse_direct_json_usage(attempted: bool, data: &[u8]) -> bool {
     !attempted && !data.is_empty()
 }
 
@@ -617,19 +617,48 @@ pub struct UsageObserver {
 }
 
 impl UsageObserver {
-    fn record_local_processing_duration(&self, microseconds: f64) {
+    pub fn new(telemetry: Arc<Telemetry>, prices: Arc<PriceBook>, site: impl Into<String>) -> Self {
+        let site = site.into();
+        Self {
+            telemetry,
+            prices,
+            local_processing_attributes: [KeyValue::new("site", site.clone())],
+            site,
+            agent_cli: "unknown".to_owned(),
+        }
+    }
+
+    pub fn with_agent_cli(mut self, agent_cli: impl Into<String>) -> Self {
+        self.agent_cli = agent_cli.into();
+        self
+    }
+
+    pub fn site(&self) -> &str {
+        &self.site
+    }
+
+    pub fn telemetry(&self) -> &Arc<Telemetry> {
+        &self.telemetry
+    }
+
+    pub fn prices(&self) -> &Arc<PriceBook> {
+        &self.prices
+    }
+
+    pub fn record_local_processing_duration(&self, microseconds: f64) {
         self.telemetry
             .record_local_processing_duration_with_attributes(
                 microseconds,
                 &self.local_processing_attributes,
             );
     }
-    fn record(&self, model: &str, usage: &crate::usage::TokenUsage) {
+
+    pub fn record(&self, model: &str, usage: &crate::usage::TokenUsage) {
         self.telemetry
             .record_usage(&self.site, model, &self.agent_cli, usage, &self.prices);
     }
 
-    fn record_tokens(&self, model: &str, usage: &crate::usage::TokenUsage) {
+    pub fn record_tokens(&self, model: &str, usage: &crate::usage::TokenUsage) {
         self.telemetry
             .record_usage_tokens(&self.site, model, &self.agent_cli, usage, &self.prices);
     }
