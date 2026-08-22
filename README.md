@@ -250,7 +250,31 @@ Pricing uses decimal arithmetic and daily peak/off-peak windows in the configure
 DeepSeek accepts both its native OpenAI-compatible responses and the Anthropic
 compatible streaming responses used by Claude Code. Usage metrics include an
 `agent_cli` attribute inferred from client headers (`claude_code`, `codex`,
-`gemini_cli`, `oh_my_pi`, `opencode`, or `unknown`).
+`gemini_cli`, `oh_my_pi`, `opencode`, `pi`, `github_copilot`, `amazon_q`,
+`roo_code`, `qwen_code`, `factory_droid`, `crush`, `kiro`, `qoder`,
+`antigravity`, `cursor`, or `unknown`). ModelTap ships stable built-in rules
+rather than exporting raw User-Agent values, which would create high-cardinality
+metrics. Tools without a distinctive request header, including Aider, Goose, and
+Continue, remain `unknown` rather than risking an incorrect classification.
+
+| Agent | `agent_cli` | Detection | Tested |
+| --- | --- | --- | --- |
+| Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent | ✓ |
+| Codex | `codex` | `codex` User-Agent | ✓ |
+| oh-my-pi | `oh_my_pi` | `oh-my-pi` User-Agent or Cursor request headers | ✓ |
+| Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent | Pending |
+| OpenCode | `opencode` | `opencode` User-Agent | Pending |
+| Pi | `pi` | `pi (` User-Agent | Pending |
+| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent | Pending |
+| Amazon Q | `amazon_q` | `AmazonQ-For-CLI` User-Agent | Pending |
+| Roo Code | `roo_code` | `RooCode/` User-Agent | Pending |
+| Qwen Code | `qwen_code` | `QwenCode/` User-Agent | Pending |
+| Factory Droid | `factory_droid` | `factory-cli/` User-Agent | Pending |
+| Crush | `crush` | `Charm-Crush/` User-Agent | Pending |
+| Kiro | `kiro` | `kiro-ide/` User-Agent | Pending |
+| Qoder | `qoder` | `Qoder-Cli` User-Agent | Pending |
+| Antigravity | `antigravity` | `antigravity/` User-Agent | Pending |
+| Cursor Agent | `cursor` | Cursor Connect/Protobuf request | Pending |
 
 Use a single `rates` block for a model whose prices do not vary by time. These
 rules can coexist with global `peak_windows` used by other models:

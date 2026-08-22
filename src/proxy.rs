@@ -269,13 +269,15 @@ async fn forward_mitm_request(
             .get("x-cursor-client-type")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.eq_ignore_ascii_case("cli"));
+    let user_agent = request
+        .headers()
+        .get(USER_AGENT)
+        .and_then(|value| value.to_str().ok());
     let agent_cli = agent_cli(
-        request
-            .headers()
-            .get(USER_AGENT)
-            .and_then(|value| value.to_str().ok()),
+        user_agent,
         is_oh_my_pi_cursor_request,
         is_oh_my_pi_cursor_cli_request,
+        is_cursor_connect,
     );
     let observer = observer.map(|mut observer| {
         observer.agent_cli = agent_cli;
@@ -662,6 +664,7 @@ fn agent_cli(
     user_agent: Option<&str>,
     is_oh_my_pi_cursor_request: bool,
     is_oh_my_pi_cursor_cli_request: bool,
+    is_cursor_connect: bool,
 ) -> String {
     let user_agent = user_agent.unwrap_or_default().to_ascii_lowercase();
     if is_oh_my_pi_cursor_request
@@ -670,17 +673,37 @@ fn agent_cli(
         || user_agent.contains("oh_my_pi")
     {
         "oh_my_pi".to_owned()
-    } else if user_agent.contains("claude") {
-        "claude_code".to_owned()
-    } else if user_agent.contains("codex") {
-        "codex".to_owned()
-    } else if user_agent.contains("gemini-cli") {
-        "gemini_cli".to_owned()
-    } else if user_agent.contains("opencode") {
-        "opencode".to_owned()
+    } else if is_cursor_connect {
+        "cursor".to_owned()
     } else {
-        "unknown".to_owned()
+        builtin_agent_cli(&user_agent).to_owned()
     }
+}
+
+fn builtin_agent_cli(user_agent: &str) -> &'static str {
+    const RULES: [(&str, &str); 15] = [
+        ("claude-code/", "claude_code"),
+        ("claude-cli/", "claude_code"),
+        ("codex", "codex"),
+        ("geminicli", "gemini_cli"),
+        ("opencode", "opencode"),
+        ("pi (", "pi"),
+        ("copilot/", "github_copilot"),
+        ("amazonq-for-cli", "amazon_q"),
+        ("roocode/", "roo_code"),
+        ("qwencode/", "qwen_code"),
+        ("factory-cli/", "factory_droid"),
+        ("charm-crush/", "crush"),
+        ("kiro-ide/", "kiro"),
+        ("qoder-cli", "qoder"),
+        ("antigravity/", "antigravity"),
+    ];
+
+    RULES
+        .iter()
+        .find(|(pattern, _)| user_agent.contains(pattern))
+        .map(|(_, agent_cli)| *agent_cli)
+        .unwrap_or("unknown")
 }
 
 fn error_response(status: http::StatusCode, message: &'static str) -> Response<ProxyBody> {
@@ -739,7 +762,41 @@ mod tests {
 
     #[test]
     fn identifies_oh_my_pi_from_cursor_cli_headers() {
-        assert_eq!(agent_cli(None, false, true), "oh_my_pi",);
+        assert_eq!(agent_cli(None, false, true, true), "oh_my_pi",);
+    }
+
+    #[test]
+    fn identifies_opencode_from_user_agent() {
+        assert_eq!(
+            agent_cli(Some("OpenCode/1.0"), false, false, false),
+            "opencode"
+        );
+    }
+
+    #[test]
+    fn identifies_builtin_agent_cli_user_agents() {
+        for (user_agent, expected) in [
+            ("claude-code/2.1.89 (cli)", "claude_code"),
+            ("codex_cli_rs/1.0", "codex"),
+            ("GeminiCLI/0.34.0/gemini-pro", "gemini_cli"),
+            ("pi (darwin 24.0; arm64)", "pi"),
+            ("copilot/0.0.353 (win32)", "github_copilot"),
+            ("AmazonQ-For-CLI/1.0", "amazon_q"),
+            ("RooCode/3.53.0", "roo_code"),
+            ("QwenCode/0.14.0 (linux; x64)", "qwen_code"),
+            ("factory-cli/0.62.1", "factory_droid"),
+            ("Charm-Crush/0.1", "crush"),
+            ("kiro-ide/1.0", "kiro"),
+            ("Qoder-Cli/1.0", "qoder"),
+            ("antigravity/2.0.1 darwin/arm64", "antigravity"),
+        ] {
+            assert_eq!(agent_cli(Some(user_agent), false, false, false), expected);
+        }
+    }
+
+    #[test]
+    fn identifies_cursor_connect_requests() {
+        assert_eq!(agent_cli(None, false, false, true), "cursor");
     }
 
     #[test]
