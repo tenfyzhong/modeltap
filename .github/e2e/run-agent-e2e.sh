@@ -79,6 +79,8 @@ for base_url in base_urls:
         raise SystemExit(f"invalid base URL: {base_url!r}")
     if host not in hosts:
         hosts.append(host)
+if os.environ["SIMULATED_HOST"] not in hosts:
+    hosts.append(os.environ["SIMULATED_HOST"])
 
 Path(os.environ["E2E_CONFIG_PATH"]).write_text(
     "proxy:\n"
@@ -94,7 +96,6 @@ Path(os.environ["E2E_CONFIG_PATH"]).write_text(
     "  - id: e2e\n"
     "    hosts:\n"
     + "".join(f"      - {host}\n" for host in hosts)
-    + f"      - {os.environ['SIMULATED_HOST']}\n"
     + "pricing:\n"
     "  timezone: UTC\n"
 )
