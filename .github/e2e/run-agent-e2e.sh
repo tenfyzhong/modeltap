@@ -107,9 +107,15 @@ MODEL_TAP_PID=$!
 trap 'kill "$MODEL_TAP_PID" "$SIMULATED_UPSTREAM_PID" 2>/dev/null || true; docker logs modeltap-e2e-otel >"$ARTIFACTS_DIR/otel-collector.log" 2>&1 || true' EXIT
 
 for i in $(seq 1 30); do
-  if curl --silent --fail --proxy "" http://127.0.0.1:2080 >/dev/null 2>&1 || \
-     curl --silent --fail --proxy "" --head http://127.0.0.1:2080 >/dev/null 2>&1; then
+  if curl --silent --max-time 1 --proxy "" --connect-timeout 1 http://127.0.0.1:2080 >/dev/null 2>&1; then
+    echo "modeltap proxy ready after ${i}s"
     break
+  fi
+  if [[ $i -eq 30 ]]; then
+    echo "ERROR: modeltap proxy did not become ready after 30s" >&2
+    echo "--- modeltap.log ---" >&2
+    cat "$ARTIFACTS_DIR/modeltap.log" >&2
+    exit 1
   fi
   sleep 1
 done
@@ -128,8 +134,8 @@ Path(os.environ["E2E_OPENCODE_CONFIG"]).write_text(json.dumps({
         "e2e-completions": {
             "name": "E2E OpenAI Completions",
             "env": ["OPENAI_COMPLETIONS_API_KEY"],
-            "package": "@opencode-ai/ai/providers/openai-compatible",
-            "settings": {"baseURL": os.environ["OPENAI_COMPLETIONS_BASE_URL"]},
+            "npm": "@opencode-ai/ai/providers/openai-compatible",
+            "options": {"baseURL": os.environ["OPENAI_COMPLETIONS_BASE_URL"]},
             "models": {os.environ["OPENAI_COMPLETIONS_MODEL"]: {"name": "E2E model"}},
         },
     },
