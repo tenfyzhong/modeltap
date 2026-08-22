@@ -5,6 +5,7 @@ import argparse
 import json
 import ssl
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse
 
 
 def varint(value):
@@ -28,9 +29,10 @@ def cursor_response():
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         request_body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        path = urlparse(self.path).path
         if self.headers.get("Content-Type", "").startswith("application/connect+proto"):
             body, content_type = cursor_response(), "application/connect+proto"
-        elif self.path.endswith("/responses"):
+        elif "/responses" in path:
             body = (
                 b'data: {"type":"response.created","response":{"id":"resp_123","object":"response","status":"in_progress","model":"simulated-model","output":[]}}\n\n'
                 b'data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_123","type":"message","role":"assistant","status":"in_progress","content":[]}}\n\n'
@@ -43,7 +45,7 @@ class Handler(BaseHTTPRequestHandler):
                 b'data: [DONE]\n\n'
             )
             content_type = "text/event-stream"
-        elif self.path.endswith("/messages"):
+        elif "/messages" in path:
             body = (
                 b'event: message_start\n'
                 b'data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","model":"simulated-model","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":3,"output_tokens":0}}}\n\n'
