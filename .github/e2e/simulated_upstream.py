@@ -5,6 +5,8 @@ import argparse
 import json
 import ssl
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import os
+import sys
 from urllib.parse import urlparse
 
 
@@ -29,7 +31,23 @@ def cursor_response():
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def log_request_details(self, method):
+        user_agent = self.headers.get("User-Agent", "<none>")
+        headers_dict = dict(self.headers)
+        print(f"[{method} {self.path}] User-Agent: {user_agent}", file=sys.stderr, flush=True)
+        capture_log = getattr(self.server, "capture_log_path", None)
+        if capture_log:
+            with open(capture_log, "a", encoding="utf-8") as f:
+                entry = {
+                    "method": method,
+                    "path": self.path,
+                    "user_agent": user_agent,
+                    "headers": headers_dict,
+                }
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
     def do_GET(self):
+        self.log_request_details("GET")
         self.close_connection = True
         body = json.dumps({"name": "models/simulated-model", "displayName": "Simulated Model"}).encode()
         self.send_response(200)
@@ -41,6 +59,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def do_POST(self):
+        self.log_request_details("POST")
         self.close_connection = True
         request_body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         path = urlparse(self.path).path
@@ -125,8 +144,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--cert", required=True)
 parser.add_argument("--key", required=True)
 parser.add_argument("--port", type=int, required=True)
+parser.add_argument("--capture-log", default=None)
 args = parser.parse_args()
 server = HTTPServer(("127.0.0.1", args.port), Handler)
+server.capture_log_path = args.capture_log
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(args.cert, args.key)
 server.socket = context.wrap_socket(server.socket, server_side=True)
