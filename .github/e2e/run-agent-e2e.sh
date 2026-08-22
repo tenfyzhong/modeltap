@@ -209,8 +209,10 @@ cat > "$HOME/.gemini/settings.json" << 'EOF'
 }
 EOF
 timeout 180s gemini --yolo --model "$GEMINI_MODEL" \
-  --prompt "Reply exactly E2E_OK." </dev/null >"$ARTIFACTS_DIR/gemini.txt"
-
+  --prompt "Reply exactly E2E_OK." </dev/null >"$ARTIFACTS_DIR/gemini.txt" || {
+    cp /tmp/gemini-client-error-*.json "$ARTIFACTS_DIR/" 2>/dev/null || true
+    exit 1
+  }
 python3 .github/e2e/simulate_agents.py \
   --url "https://$SIMULATED_HOST:$SIMULATED_PORT/v1/chat/completions" \
   --proxy "$HTTP_PROXY" >"$ARTIFACTS_DIR/simulated-agents.txt"

@@ -27,6 +27,8 @@ def cursor_response():
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def do_GET(self):
         body = json.dumps({"name": "models/simulated-model", "displayName": "Simulated Model"}).encode()
         self.send_response(200)
