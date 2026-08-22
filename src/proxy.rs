@@ -269,13 +269,23 @@ async fn forward_mitm_request(
             .get("x-cursor-client-type")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.eq_ignore_ascii_case("cli"));
+    let is_oh_my_pi_custom_header = request
+        .headers()
+        .get("x-oh-my-pi")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == "true")
+        || request
+            .headers()
+            .get("x-omp")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value == "true");
     let user_agent = request
         .headers()
         .get(USER_AGENT)
         .and_then(|value| value.to_str().ok());
     let agent_cli = agent_cli(
         user_agent,
-        is_oh_my_pi_cursor_request,
+        is_oh_my_pi_cursor_request || is_oh_my_pi_custom_header,
         is_oh_my_pi_cursor_cli_request,
         is_cursor_connect,
     );
@@ -669,8 +679,7 @@ fn agent_cli(
     let user_agent = user_agent.unwrap_or_default().to_ascii_lowercase();
     if is_oh_my_pi_cursor_request
         || is_oh_my_pi_cursor_cli_request
-        || user_agent.contains("oh-my-pi")
-        || user_agent.contains("oh_my_pi")
+        || is_oh_my_pi_user_agent(&user_agent)
     {
         "oh_my_pi".to_owned()
     } else if is_cursor_connect {
@@ -680,14 +689,25 @@ fn agent_cli(
     }
 }
 
+fn is_oh_my_pi_user_agent(user_agent: &str) -> bool {
+    user_agent.contains("oh-my-pi")
+        || user_agent.contains("oh_my_pi")
+        || user_agent.contains("omp/")
+        || user_agent.starts_with("omp/")
+        || user_agent.starts_with("omp ")
+        || user_agent == "omp"
+}
+
 fn builtin_agent_cli(user_agent: &str) -> &'static str {
-    const RULES: [(&str, &str); 15] = [
+    const RULES: [(&str, &str); 17] = [
         ("claude-code/", "claude_code"),
         ("claude-cli/", "claude_code"),
         ("codex", "codex"),
         ("geminicli", "gemini_cli"),
         ("opencode", "opencode"),
         ("pi (", "pi"),
+        ("pi/", "pi"),
+        ("pi-coding-agent", "pi"),
         ("copilot/", "github_copilot"),
         ("amazonq-for-cli", "amazon_q"),
         ("roocode/", "roo_code"),
@@ -698,7 +718,6 @@ fn builtin_agent_cli(user_agent: &str) -> &'static str {
         ("qoder-cli", "qoder"),
         ("antigravity/", "antigravity"),
     ];
-
     RULES
         .iter()
         .find(|(pattern, _)| user_agent.contains(pattern))
@@ -780,6 +799,10 @@ mod tests {
             ("codex_cli_rs/1.0", "codex"),
             ("GeminiCLI/0.34.0/gemini-pro", "gemini_cli"),
             ("pi (darwin 24.0; arm64)", "pi"),
+            ("pi/0.20.0 (darwin; bun/1.1.20; arm64)", "pi"),
+            ("omp/17.3.7", "oh_my_pi"),
+            ("omp/0.10.0", "oh_my_pi"),
+            ("oh-my-pi/0.2.0", "oh_my_pi"),
             ("copilot/0.0.353 (win32)", "github_copilot"),
             ("AmazonQ-For-CLI/1.0", "amazon_q"),
             ("RooCode/3.53.0", "roo_code"),
