@@ -222,7 +222,7 @@ fn dashboard_abbreviates_token_values_with_k_m_and_b_suffixes() {
         .expect("dashboard JSON is valid");
     let panels = dashboard["panels"].as_array().unwrap();
 
-    for panel_id in [2, 5, 7] {
+    for panel_id in [2, 5, 7, 15] {
         let panel = panels.iter().find(|panel| panel["id"] == panel_id).unwrap();
         assert_eq!(
             panel["fieldConfig"]["defaults"]["unit"], "short",
@@ -286,5 +286,79 @@ fn dashboard_shows_average_modeltap_chunk_processing_duration_in_microseconds() 
     assert_eq!(
         panel["targets"][0]["expr"],
         "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\"}[$__rate_interval]))"
+    );
+}
+
+#[test]
+fn dashboard_shows_qps_by_model_using_rate_so_idle_periods_drop_to_zero() {
+    let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
+        .expect("dashboard JSON is valid");
+    let panels = dashboard["panels"].as_array().unwrap();
+    let panel = panels.iter().find(|panel| panel["id"] == 4).unwrap();
+
+    assert_eq!(panel["title"], "QPS by model");
+    assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "ops");
+    assert_eq!(
+        panel["targets"][0]["expr"],
+        "sum by (site, model) (rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
+    );
+    assert_eq!(panel["targets"][0]["legendFormat"], "{{site}} / {{model}}");
+}
+
+#[test]
+fn dashboard_shows_qps_stat_using_rate_so_idle_periods_drop_to_zero() {
+    let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
+        .expect("dashboard JSON is valid");
+    let panels = dashboard["panels"].as_array().unwrap();
+    let panel = panels.iter().find(|panel| panel["id"] == 1).unwrap();
+
+    assert_eq!(panel["title"], "QPS");
+    assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "ops");
+    assert_eq!(
+        panel["targets"][0]["expr"],
+        "sum(rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
+    );
+}
+
+#[test]
+fn dashboard_has_realtime_token_and_cost_breakdowns_by_agent_cli_site_model_and_type() {
+    let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
+        .expect("dashboard JSON is valid");
+    let panels = dashboard["panels"].as_array().unwrap();
+
+    let token_panel = panels
+        .iter()
+        .find(|panel| panel["id"] == 15)
+        .expect("realtime token panel exists");
+    assert_eq!(
+        token_panel["title"],
+        "Tokens by agent_cli, site, model, and type"
+    );
+    assert_eq!(token_panel["fieldConfig"]["defaults"]["unit"], "short");
+    assert_eq!(
+        token_panel["targets"][0]["expr"],
+        "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
+    );
+    assert_eq!(
+        token_panel["targets"][0]["legendFormat"],
+        "{{agent_cli}} / {{site}} / {{model}} / {{type}}"
+    );
+
+    let cost_panel = panels
+        .iter()
+        .find(|panel| panel["id"] == 16)
+        .expect("realtime cost panel exists");
+    assert_eq!(
+        cost_panel["title"],
+        "Cost by agent_cli, site, model, and type (USD)"
+    );
+    assert_eq!(cost_panel["fieldConfig"]["defaults"]["unit"], "currencyUSD");
+    assert_eq!(
+        cost_panel["targets"][0]["expr"],
+        "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__rate_interval]))"
+    );
+    assert_eq!(
+        cost_panel["targets"][0]["legendFormat"],
+        "{{agent_cli}} / {{site}} / {{model}} / {{type}}"
     );
 }
