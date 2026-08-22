@@ -131,60 +131,52 @@ pricing:
     - start: "14:00"
       end: "18:00"
   rules:
-    - site: openai
-      model: "gpt-5.6-sol*"
+    - model: "gpt-5.6-sol*"
       currency: USD
       rates:
         input: 5
         output: 30
         cache_read: 0.5
-    - site: openai
-      model: "gpt-5.6-terra*"
+    - model: "gpt-5.6-terra*"
       currency: USD
       rates:
         input: 2
         output: 12
         cache_read: 0.2
-    - site: openai
-      model: "gpt-5.6-luna*"
+    - model: "gpt-5.6-luna*"
       currency: USD
       rates:
         input: 0.2
         output: 1.2
         cache_read: 0.02
-    - site: anthropic
-      model: "claude-opus-4-8*"
+    - model: "claude-opus-4-8*"
       currency: USD
       rates:
         input: 5
         output: 25
         cache_read: 0.5
         cache_write: 6.25
-    - site: anthropic
-      model: "claude-sonnet-4-6*"
+    - model: "claude-sonnet-4-6*"
       currency: USD
       rates:
         input: 3
         output: 15
         cache_read: 0.3
         cache_write: 3.75
-    - site: anthropic
-      model: "claude-haiku-4-5*"
+    - model: "claude-haiku-4-5*"
       currency: USD
       rates:
         input: 1
         output: 5
         cache_read: 0.1
         cache_write: 1.25
-    - site: gemini
-      model: "gemini-3.7-flash*"
+    - model: "gemini-3.7-flash*"
       currency: USD
       rates:
         input: 0.75
         output: 3.75
         cache_read: 0.075
-    - site: deepseek
-      model: "deepseek-v4-flash*"
+    - model: "deepseek-v4-flash*"
       currency: USD
       peak:
         input: 0.445221684
@@ -194,8 +186,7 @@ pricing:
         input: 0.222610842
         output: 0.667832526
         cache_read: 0.007420361
-    - site: deepseek
-      model: "deepseek-v4-pro*"
+    - model: "deepseek-v4-pro*"
       currency: USD
       peak:
         input: 1.335665051
@@ -205,7 +196,28 @@ pricing:
         input: 0.667832526
         output: 2.003497577
         cache_read: 0.022261084
-```
+    # Cursor site-specific overrides
+    - site: cursor
+      model: "gpt-5.6-sol-*"
+      currency: USD
+      rates:
+        input: 2.5
+        output: 15
+        cache_read: 0.25
+    - site: cursor
+      model: "gpt-5.6-terra-*"
+      currency: USD
+      rates:
+        input: 1.25
+        output: 7.5
+        cache_read: 0.125
+    - site: cursor
+      model: "gpt-5.6-luna-*"
+      currency: USD
+      rates:
+        input: 0.5
+        output: 3
+        cache_read: 0.05
 
 With this configuration, OpenAI, Anthropic, and Gemini use the default Privoxy
 egress at `127.0.0.1:8118`. DeepSeek overrides the default with
@@ -214,7 +226,7 @@ egress at `127.0.0.1:8118`. DeepSeek overrides the default with
 
 ### Sites and protocol detection
 
-`id` is the site identity used in metric labels and `pricing.rules`; use the
+`id` is the site identity used in metric labels and `pricing.rules` (for site-specific overrides); use the
 actual service/vendor name, such as `grok`, `cursor`, or `openai`. ModelTap
 detects the usage protocol from each request or response automatically, so site
 configuration does not need a `provider` or `provider_type` field. It recognizes
@@ -310,6 +322,9 @@ the vendor client was installed or authenticated in CI.
 | Antigravity | `antigravity` | `antigravity/` User-Agent | Simulated protocol + User-Agent regression |
 | Cursor Agent | `cursor` | Cursor Connect/Protobuf request without oh-my-pi headers | Simulated protocol + User-Agent regression |
 
+Pricing rules can be configured globally (without a `site`) or for a specific `site`.
+When calculating costs, ModelTap first checks for a site-specific rule matching the request's site; if none matches, it falls back to matching global rules. This allows configuring default prices for a model once across all sites while overriding rates for specific sites where pricing differs.
+
 Use a single `rates` block for a model whose prices do not vary by time. These
 rules can coexist with global `peak_windows` used by other models:
 
@@ -317,14 +332,20 @@ rules can coexist with global `peak_windows` used by other models:
 pricing:
   timezone: Asia/Shanghai
   rules:
-    - site: openai
-      model: text-embedding-3-*
+    # Global rule applicable to any site
+    - model: text-embedding-3-*
       currency: USD
       rates:
         input: 0.02
         output: 0
+    # Site-specific override
+    - site: custom_gateway
+      model: text-embedding-3-*
+      currency: USD
+      rates:
+        input: 0.015
+        output: 0
 ```
-
 Each peak window has separate `start` and `end` fields in `HH:MM` format. Windows
 may cross midnight (for example `start: "22:00"`, `end: "02:00"`) but must not
 overlap. The legacy string form (`"09:00-12:00"`) remains accepted for existing

@@ -33,7 +33,8 @@ pub struct PricingConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PriceRuleConfig {
-    pub site: String,
+    #[serde(default)]
+    pub site: Option<String>,
     pub model: String,
     pub currency: String,
     #[serde(default)]
@@ -43,7 +44,6 @@ pub struct PriceRuleConfig {
     #[serde(default)]
     pub off_peak: Option<PriceRates>,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum PeakWindowConfig {
@@ -95,7 +95,7 @@ impl PriceRates {
 
 #[derive(Debug)]
 struct CompiledRule {
-    site: String,
+    site: Option<String>,
     matcher: GlobMatcher,
     currency: String,
     peak: PriceRates,
@@ -103,7 +103,6 @@ struct CompiledRule {
     peak_f64: FloatPriceRates,
     off_peak_f64: FloatPriceRates,
 }
-
 #[derive(Debug, Clone, Copy, Default)]
 struct FloatPriceRates {
     input: Option<f64>,
@@ -175,8 +174,14 @@ impl PriceBook {
                     (None, Some(peak), Some(off_peak)) => (peak.clone(), off_peak.clone()),
                     _ => return Err(PricingError::Rates(rule.model.clone())),
                 };
+                let site = rule
+                    .site
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
                 Ok(CompiledRule {
-                    site: rule.site.clone(),
+                    site,
                     matcher,
                     currency: rule.currency.clone(),
                     peak_f64: FloatPriceRates::from_rates(&peak),
@@ -212,7 +217,12 @@ impl PriceBook {
         let rule = self
             .rules
             .iter()
-            .find(|rule| rule.site == site && rule.matcher.is_match(model))?;
+            .find(|rule| rule.site.as_deref() == Some(site) && rule.matcher.is_match(model))
+            .or_else(|| {
+                self.rules
+                    .iter()
+                    .find(|rule| rule.site.is_none() && rule.matcher.is_match(model))
+            })?;
         let period = self.period_at(instant);
         let (rates, float_rates) = match period {
             PricePeriod::Peak => (&rule.peak, &rule.peak_f64),

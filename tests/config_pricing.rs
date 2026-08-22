@@ -304,4 +304,264 @@ fn config_sample_prices_cursor_models_at_official_upstream_rates() {
         "0.075"
     );
     assert_eq!(gemini.rate(TokenType::Output).unwrap().to_string(), "3.75");
+
+    // gpt-5.6-sol on cursor uses the cursor-specific override
+    let cursor_sol = book.lookup("cursor", "gpt-5.6-sol-high", instant).unwrap();
+    assert_eq!(
+        cursor_sol.rate(TokenType::Input).unwrap().to_string(),
+        "2.5"
+    );
+    assert_eq!(
+        cursor_sol.rate(TokenType::CacheRead).unwrap().to_string(),
+        "0.25"
+    );
+    assert_eq!(
+        cursor_sol.rate(TokenType::Output).unwrap().to_string(),
+        "15"
+    );
+
+    // gpt-5.6-sol on openai uses global official pricing
+    let openai_sol = book.lookup("openai", "gpt-5.6-sol-high", instant).unwrap();
+    assert_eq!(openai_sol.rate(TokenType::Input).unwrap().to_string(), "5");
+    assert_eq!(
+        openai_sol.rate(TokenType::CacheRead).unwrap().to_string(),
+        "0.5"
+    );
+    assert_eq!(
+        openai_sol.rate(TokenType::Output).unwrap().to_string(),
+        "30"
+    );
+
+    // claude-sonnet models on cursor and anthropic both use global pricing
+    let cursor_claude = book
+        .lookup("cursor", "claude-4.6-sonnet-medium", instant)
+        .unwrap();
+    assert_eq!(
+        cursor_claude.rate(TokenType::Input).unwrap().to_string(),
+        "3"
+    );
+    assert_eq!(
+        cursor_claude.rate(TokenType::Output).unwrap().to_string(),
+        "15"
+    );
+    assert_eq!(
+        cursor_claude
+            .rate(TokenType::CacheRead)
+            .unwrap()
+            .to_string(),
+        "0.3"
+    );
+    assert_eq!(
+        cursor_claude
+            .rate(TokenType::CacheWrite)
+            .unwrap()
+            .to_string(),
+        "3.75"
+    );
+
+    let anthropic_claude = book
+        .lookup("anthropic", "claude-sonnet-4-6", instant)
+        .unwrap();
+    assert_eq!(
+        anthropic_claude.rate(TokenType::Input).unwrap().to_string(),
+        "3"
+    );
+    assert_eq!(
+        anthropic_claude
+            .rate(TokenType::Output)
+            .unwrap()
+            .to_string(),
+        "15"
+    );
+    assert_eq!(
+        anthropic_claude
+            .rate(TokenType::CacheRead)
+            .unwrap()
+            .to_string(),
+        "0.3"
+    );
+    assert_eq!(
+        anthropic_claude
+            .rate(TokenType::CacheWrite)
+            .unwrap()
+            .to_string(),
+        "3.75"
+    );
+
+    // gpt-5.5-{extra-high,high,low,medium,none} brace expansion matches all variants
+    for variant in ["extra-high", "high", "low", "medium", "none"] {
+        let model = format!("gpt-5.5-{variant}");
+        let price = book
+            .lookup("cursor", &model, instant)
+            .unwrap_or_else(|| panic!("expected {model} to match"));
+        assert_eq!(price.rate(TokenType::Input).unwrap().to_string(), "2.5");
+        assert_eq!(price.rate(TokenType::Output).unwrap().to_string(), "15");
+        assert_eq!(
+            price.rate(TokenType::CacheRead).unwrap().to_string(),
+            "0.25"
+        );
+    }
+    assert!(book.lookup("cursor", "gpt-5.5-unknown", instant).is_none());
+}
+
+#[test]
+fn supports_global_pricing_rules_and_site_overrides() {
+    let config = Config::from_yaml(
+        r#"
+pricing:
+  timezone: UTC
+  rules:
+    - model: "claude-4.6-connect"
+      currency: USD
+      rates:
+        input: 3.0
+        output: 15.0
+    - site: cursor
+      model: "claude-4.6-connect"
+      currency: USD
+      rates:
+        input: 2.5
+        output: 12.5
+    - model: "gpt-5*"
+      currency: USD
+      rates:
+        input: 1.5
+        output: 6.0
+    - site: custom
+      model: "gpt-5-mini"
+      currency: USD
+      rates:
+        input: 0.5
+        output: 2.0
+"#,
+    )
+    .unwrap();
+
+    let prices = PriceBook::from_config(&config.pricing).unwrap();
+    let instant = Utc.with_ymd_and_hms(2026, 8, 20, 10, 0, 0).unwrap();
+
+    // claude-4.6-connect on cursor uses the site override
+    let cursor_claude = prices
+        .lookup("cursor", "claude-4.6-connect", instant)
+        .unwrap();
+    assert_eq!(
+        cursor_claude.rate(TokenType::Input).unwrap().to_string(),
+        "2.5"
+    );
+    assert_eq!(
+        cursor_claude.rate(TokenType::Output).unwrap().to_string(),
+        "12.5"
+    );
+
+    // claude-4.6-connect on any other site falls back to global pricing
+    let anthropic_claude = prices
+        .lookup("anthropic", "claude-4.6-connect", instant)
+        .unwrap();
+    assert_eq!(
+        anthropic_claude.rate(TokenType::Input).unwrap().to_string(),
+        "3"
+    );
+    assert_eq!(
+        anthropic_claude
+            .rate(TokenType::Output)
+            .unwrap()
+            .to_string(),
+        "15"
+    );
+
+    let direct_claude = prices
+        .lookup("direct", "claude-4.6-connect", instant)
+        .unwrap();
+    assert_eq!(
+        direct_claude.rate(TokenType::Input).unwrap().to_string(),
+        "3"
+    );
+    assert_eq!(
+        direct_claude.rate(TokenType::Output).unwrap().to_string(),
+        "15"
+    );
+
+    // gpt-5-mini on custom uses the site override
+    let custom_gpt = prices.lookup("custom", "gpt-5-mini", instant).unwrap();
+    assert_eq!(
+        custom_gpt.rate(TokenType::Input).unwrap().to_string(),
+        "0.5"
+    );
+    assert_eq!(custom_gpt.rate(TokenType::Output).unwrap().to_string(), "2");
+
+    // gpt-5-mini on openai falls back to global gpt-5* rule
+    let openai_gpt = prices.lookup("openai", "gpt-5-mini", instant).unwrap();
+    assert_eq!(
+        openai_gpt.rate(TokenType::Input).unwrap().to_string(),
+        "1.5"
+    );
+    assert_eq!(openai_gpt.rate(TokenType::Output).unwrap().to_string(), "6");
+
+    // Non-existent model returns None
+    assert!(prices.lookup("openai", "unknown-model", instant).is_none());
+}
+
+#[test]
+fn site_override_precedes_global_regardless_of_rule_order_and_specificity() {
+    let config = Config::from_yaml(
+        r#"
+pricing:
+  timezone: UTC
+  rules:
+    - site: override_site
+      model: "claude-*"
+      currency: USD
+      rates:
+        input: 1.0
+        output: 2.0
+    - model: "claude-4.6-connect"
+      currency: USD
+      rates:
+        input: 3.0
+        output: 15.0
+    - site: ""
+      model: "empty-site-model"
+      currency: USD
+      rates:
+        input: 0.1
+        output: 0.2
+"#,
+    )
+    .unwrap();
+
+    let prices = PriceBook::from_config(&config.pricing).unwrap();
+    let instant = Utc.with_ymd_and_hms(2026, 8, 20, 10, 0, 0).unwrap();
+
+    // override_site with claude-* rule matches before global claude-4.6-connect
+    let site_price = prices
+        .lookup("override_site", "claude-4.6-connect", instant)
+        .unwrap();
+    assert_eq!(site_price.rate(TokenType::Input).unwrap().to_string(), "1");
+    assert_eq!(site_price.rate(TokenType::Output).unwrap().to_string(), "2");
+
+    // other site gets the exact global rule
+    let other_price = prices
+        .lookup("other_site", "claude-4.6-connect", instant)
+        .unwrap();
+    assert_eq!(other_price.rate(TokenType::Input).unwrap().to_string(), "3");
+    assert_eq!(
+        other_price.rate(TokenType::Output).unwrap().to_string(),
+        "15"
+    );
+
+    // site: "" is treated as global
+    let empty_site_price = prices
+        .lookup("any_site", "empty-site-model", instant)
+        .unwrap();
+    assert_eq!(
+        empty_site_price.rate(TokenType::Input).unwrap().to_string(),
+        "0.1"
+    );
+    assert_eq!(
+        empty_site_price
+            .rate(TokenType::Output)
+            .unwrap()
+            .to_string(),
+        "0.2"
+    );
 }
