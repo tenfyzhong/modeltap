@@ -107,9 +107,12 @@ fn openai_sse_chunk_processing_duration_meets_performance_limits() {
     for _ in 0..100 {
         let mut parser = AutoStreamUsageParser::new();
         for &chunk in &chunks {
+            let started = Instant::now();
             if let Some((_protocol, usage)) = parser.push(chunk) {
                 observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
             }
+            let duration_us = local_processing_microseconds(started);
+            observer.record_local_processing_duration(duration_us);
         }
     }
 
@@ -148,9 +151,12 @@ fn anthropic_sse_chunk_processing_duration_meets_performance_limits() {
     for _ in 0..100 {
         let mut parser = AutoStreamUsageParser::new();
         for &chunk in &chunks {
+            let started = Instant::now();
             if let Some((_protocol, usage)) = parser.push(chunk) {
                 observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
             }
+            let duration_us = local_processing_microseconds(started);
+            observer.record_local_processing_duration(duration_us);
         }
     }
 
@@ -190,12 +196,19 @@ fn direct_json_response_processing_duration_meets_performance_limits() {
     // Warmup
     for _ in 0..100 {
         for &(content_type, payload) in &payloads {
-            if is_json_content_type(content_type) && should_parse_direct_json_usage(false, payload)
+            let started = Instant::now();
+            let mut direct_parse_attempted = false;
+            if is_json_content_type(content_type)
+                && should_parse_direct_json_usage(direct_parse_attempted, payload)
             {
+                direct_parse_attempted = true;
                 if let Some((_protocol, usage)) = auto_parse_json(payload) {
                     observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
                 }
             }
+            let _ = direct_parse_attempted;
+            let duration_us = local_processing_microseconds(started);
+            observer.record_local_processing_duration(duration_us);
         }
     }
 
@@ -235,9 +248,12 @@ fn websocket_frame_processing_duration_meets_performance_limits() {
     // Warmup
     for _ in 0..100 {
         let mut parser = WebSocketUsageParser::new();
+        let started = Instant::now();
         if let Some((_protocol, usage)) = parser.push(&frame) {
             observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
         }
+        let duration_us = local_processing_microseconds(started);
+        observer.record_local_processing_duration(duration_us);
     }
 
     let mut durations = Vec::with_capacity(iterations);
