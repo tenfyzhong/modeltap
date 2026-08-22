@@ -387,6 +387,21 @@ fn config_sample_prices_cursor_models_at_official_upstream_rates() {
             .to_string(),
         "3.75"
     );
+
+    // gpt-5.5-{extra-high,high,low,medium,none} brace expansion matches all variants
+    for variant in ["extra-high", "high", "low", "medium", "none"] {
+        let model = format!("gpt-5.5-{variant}");
+        let price = book
+            .lookup("cursor", &model, instant)
+            .unwrap_or_else(|| panic!("expected {model} to match"));
+        assert_eq!(price.rate(TokenType::Input).unwrap().to_string(), "2.5");
+        assert_eq!(price.rate(TokenType::Output).unwrap().to_string(), "15");
+        assert_eq!(
+            price.rate(TokenType::CacheRead).unwrap().to_string(),
+            "0.25"
+        );
+    }
+    assert!(book.lookup("cursor", "gpt-5.5-unknown", instant).is_none());
 }
 
 #[test]
