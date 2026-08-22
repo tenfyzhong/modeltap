@@ -27,7 +27,7 @@ def cursor_response():
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        request_body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if self.headers.get("Content-Type", "").startswith("application/connect+proto"):
             body, content_type = cursor_response(), "application/connect+proto"
         elif self.path.endswith("/responses"):
@@ -40,7 +40,12 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps({"candidates": [{"content": {"parts": [{"text": "E2E_OK"}]}}], "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 5}}).encode()
             content_type = "application/json"
         else:
-            body, content_type = json.dumps({"model": "simulated-model", "choices": [{"message": {"content": "E2E_OK"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 3, "completion_tokens": 5}}).encode(), "application/json"
+            request = json.loads(request_body or b"{}")
+            if request.get("stream"):
+                body = b"data: {\"model\":\"simulated-model\",\"choices\":[{\"delta\":{\"content\":\"E2E_OK\"}}]}\n\ndata: {\"model\":\"simulated-model\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":5}}\n\ndata: [DONE]\n\n"
+                content_type = "text/event-stream"
+            else:
+                body, content_type = json.dumps({"model": "simulated-model", "choices": [{"message": {"content": "E2E_OK"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 3, "completion_tokens": 5}}).encode(), "application/json"
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
