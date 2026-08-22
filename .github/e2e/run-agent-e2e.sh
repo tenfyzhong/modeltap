@@ -6,8 +6,10 @@ readonly ARTIFACTS_DIR="$GITHUB_WORKSPACE/.github/e2e/artifacts"
 readonly CONFIG_PATH="$RUNNER_TEMP/modeltap-e2e.yaml"
 readonly CERT_DIR="$RUNNER_TEMP/modeltap-e2e-certs"
 readonly CA_CERT="$CERT_DIR/modeltap-ca-cert.pem"
+readonly SIMULATED_HOST="modeltap-e2e-simulated.local"
+readonly SIMULATED_PORT=8443
 
-export ARTIFACTS_DIR CERT_DIR CA_CERT
+export ARTIFACTS_DIR CERT_DIR CA_CERT SIMULATED_HOST
 
 mkdir -p "$ARTIFACTS_DIR" "$CERT_DIR"
 
@@ -33,6 +35,23 @@ require_environment \
 
 sudo cp "$CA_CERT" /usr/local/share/ca-certificates/modeltap-e2e.crt
 sudo update-ca-certificates
+echo "127.0.0.1 $SIMULATED_HOST" | sudo tee -a /etc/hosts >/dev/null
+
+openssl req -new -newkey rsa:2048 -nodes \
+  -subj "/CN=$SIMULATED_HOST" \
+  -addext "subjectAltName=DNS:$SIMULATED_HOST" \
+  -keyout "$CERT_DIR/simulated-upstream-key.pem" \
+  -out "$CERT_DIR/simulated-upstream.csr" >/dev/null 2>&1
+openssl x509 -req -days 1 \
+  -in "$CERT_DIR/simulated-upstream.csr" \
+  -CA "$CA_CERT" -CAkey "$CERT_DIR/modeltap-ca-key.pem" -CAcreateserial \
+  -copy_extensions copy \
+  -out "$CERT_DIR/simulated-upstream-cert.pem" >/dev/null 2>&1
+python3 .github/e2e/simulated_upstream.py \
+  --cert "$CERT_DIR/simulated-upstream-cert.pem" \
+  --key "$CERT_DIR/simulated-upstream-key.pem" \
+  --port "$SIMULATED_PORT" >"$ARTIFACTS_DIR/simulated-upstream.log" 2>&1 &
+SIMULATED_UPSTREAM_PID=$!
 
 export NODE_EXTRA_CA_CERTS="$CA_CERT"
 export HTTP_PROXY="http://127.0.0.1:2080"
@@ -74,6 +93,7 @@ Path(os.environ["E2E_CONFIG_PATH"]).write_text(
     "  - id: e2e\n"
     "    hosts:\n"
     + "".join(f"      - {host}\n" for host in hosts)
+    + f"      - {os.environ['SIMULATED_HOST']}\n"
     + "pricing:\n"
     "  timezone: UTC\n"
 )
@@ -82,7 +102,7 @@ PY
 OTEL_METRIC_EXPORT_INTERVAL=1000 ./target/debug/modeltap run --config "$CONFIG_PATH" \
   >"$ARTIFACTS_DIR/modeltap.log" 2>&1 &
 MODEL_TAP_PID=$!
-trap 'kill "$MODEL_TAP_PID" 2>/dev/null || true; docker logs modeltap-e2e-otel >"$ARTIFACTS_DIR/otel-collector.log" 2>&1 || true' EXIT
+trap 'kill "$MODEL_TAP_PID" "$SIMULATED_UPSTREAM_PID" 2>/dev/null || true; docker logs modeltap-e2e-otel >"$ARTIFACTS_DIR/otel-collector.log" 2>&1 || true' EXIT
 
 sleep 1
 
@@ -141,5 +161,9 @@ export GEMINI_TELEMETRY_ENABLED=false
 timeout 180s gemini --yolo --model "$GEMINI_MODEL" \
   --prompt "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/gemini.txt"
 
+python3 .github/e2e/simulate_agents.py \
+  --url "https://$SIMULATED_HOST:$SIMULATED_PORT/v1/chat/completions" \
+  --proxy "$HTTP_PROXY" >"$ARTIFACTS_DIR/simulated-agents.txt"
+
 curl --fail --silent --show-error http://127.0.0.1:9464/metrics >"$ARTIFACTS_DIR/metrics.prom"
-python3 .github/e2e/assert_metrics.py opencode codex claude_code gemini_cli
+python3 .github/e2e/assert_metrics.py

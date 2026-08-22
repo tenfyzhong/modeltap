@@ -265,6 +265,11 @@ ModelTap, and checks the exported Prometheus metrics for a positive request and
 token total with the expected `agent_cli` label. It does not run on pull
 requests, because it makes billable API requests.
 
+The workflow additionally routes representative requests for every documented
+`agent_cli` value through a local HTTPS upstream. This keeps proprietary,
+OAuth-only, and IDE-only agents covered by the same metric assertion without
+claiming that their vendor client ran in CI.
+
 Configure these repository secrets. Every provider has its own base URL so the
 workflow works with both first-party APIs and compatible gateways:
 

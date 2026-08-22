@@ -10,10 +10,14 @@ import urllib.request
 
 
 METRICS_URL = "http://127.0.0.1:9464/metrics"
-AGENTS = sys.argv[1:]
+EXPECTED_AGENT_CLIS = (
+    "claude_code", "codex", "oh_my_pi", "gemini_cli", "opencode", "pi",
+    "github_copilot", "amazon_q", "roo_code", "qwen_code", "factory_droid",
+    "crush", "kiro", "qoder", "antigravity", "cursor",
+)
 
-if not AGENTS:
-    raise SystemExit("usage: assert_metrics.py <agent_cli>...")
+if len(sys.argv) != 1:
+    raise SystemExit("assert_metrics.py does not accept arguments")
 
 
 def samples(metrics: str, metric: str, agent: str) -> list[float]:
@@ -32,7 +36,7 @@ for attempt in range(60):
 
     missing = [
         f"{agent}:{metric}"
-        for agent in AGENTS
+        for agent in EXPECTED_AGENT_CLIS
         for metric in ("ai_proxy_requests", "ai_proxy_tokens")
         if sum(samples(metrics, metric, agent)) <= 0
     ]
@@ -44,7 +48,7 @@ else:
     print(metrics, file=sys.stderr)
     raise SystemExit(1)
 
-for agent in AGENTS:
+for agent in EXPECTED_AGENT_CLIS:
     requests = sum(samples(metrics, "ai_proxy_requests", agent))
     tokens = sum(samples(metrics, "ai_proxy_tokens", agent))
     print(f"{agent}: requests={requests:g}, tokens={tokens:g}")

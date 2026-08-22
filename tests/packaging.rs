@@ -60,7 +60,33 @@ fn agent_e2e_workflow_exercises_each_supported_protocol_and_agent() {
     assert!(runner.contains("codex"));
     assert!(runner.contains("claude"));
     assert!(runner.contains("gemini"));
+    assert!(runner.contains("simulate_agents.py"));
     assert!(runner.contains("assert_metrics.py"));
+
+    let metrics_assertion = include_str!("../.github/e2e/assert_metrics.py");
+    for agent_cli in [
+        "claude_code",
+        "codex",
+        "oh_my_pi",
+        "gemini_cli",
+        "opencode",
+        "pi",
+        "github_copilot",
+        "amazon_q",
+        "roo_code",
+        "qwen_code",
+        "factory_droid",
+        "crush",
+        "kiro",
+        "qoder",
+        "antigravity",
+        "cursor",
+    ] {
+        assert!(
+            metrics_assertion.contains(&format!("\"{agent_cli}\"")),
+            "missing expected agent_cli {agent_cli}"
+        );
+    }
 }
 
 #[test]
