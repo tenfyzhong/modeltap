@@ -129,7 +129,7 @@ Path(os.environ["E2E_OPENCODE_CONFIG"]).write_text(json.dumps({
     },
 }))
 PY
-timeout 180s opencode run --model "e2e-completions/$OPENAI_COMPLETIONS_MODEL" \
+timeout 180s opencode run --print-logs --model "e2e-completions/$OPENAI_COMPLETIONS_MODEL" \
   --format json --auto "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/opencode.json" 2>&1
 
 export PI_CODING_AGENT_DIR="$RUNNER_TEMP/pi-agent"

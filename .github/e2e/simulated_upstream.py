@@ -53,7 +53,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, format, *args):
-        return
+        super().log_message(format, *args)
 
 
 parser = argparse.ArgumentParser()
