@@ -221,19 +221,19 @@ python3 .github/e2e/simulate_agents.py \
 python3 .github/e2e/assert_metrics.py
 curl --fail --silent --show-error http://127.0.0.1:9464/metrics >"$ARTIFACTS_DIR/metrics.prom"
 
-echo "=== CAPTURED AGENT HTTP USER-AGENTS ==="
+echo "=== CAPTURED AGENT HTTP HEADERS AND USER-AGENTS ==="
 python3 - <<'PY'
 import json, os
 from pathlib import Path
 log_file = Path(os.environ["ARTIFACTS_DIR"]) / "captured-requests.log"
 if log_file.exists():
-    seen = set()
-    for line in log_file.read_text(encoding="utf-8").splitlines():
+    for i, line in enumerate(log_file.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
         entry = json.loads(line)
-        key = (entry["method"], entry["path"], entry["user_agent"])
-        if key not in seen:
-            seen.add(key)
-            print(f"{entry['method']} {entry['path']} -> User-Agent: {entry['user_agent']}")
+        print(f"\n--- Request #{i}: {entry['method']} {entry['path']} ---")
+        print(f"User-Agent: {entry.get('user_agent')}")
+        print("Headers:")
+        for k, v in entry.get("headers", {}).items():
+            print(f"  {k}: {v}")
 PY
