@@ -35,7 +35,7 @@ async fn execute(command: Command) -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::Version => {
             println!("modeltap {VERSION}");
-            return Ok(());
+            Ok(())
         }
         Command::CaInit {
             certificate_file,
@@ -44,7 +44,7 @@ async fn execute(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             let authority = MitmAuthority::generate("modeltap local CA")?;
             write_new(&certificate_file, authority.root_certificate_pem()?)?;
             write_new(&key_file, authority.root_private_key_pem()?)?;
-            return Ok(());
+            Ok(())
         }
         Command::Validate { config_file } => validate(&config_file),
         Command::Run { config_file } => run(&config_file).await,

@@ -93,8 +93,8 @@ fn agent_e2e_workflow_exercises_each_supported_protocol_and_agent() {
 }
 
 #[test]
-fn readme_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
-    let readme = include_str!("../README.md");
+fn contributing_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
+    let contributing = include_str!("../CONTRIBUTING.md");
 
     for agent in [
         "Claude Code",
@@ -107,7 +107,8 @@ fn readme_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
         "Qwen Code",
     ] {
         assert!(
-            readme.contains(&format!("| {agent} |")) && readme.contains("Real E2E workflow"),
+            contributing.contains(&format!("| {agent} |"))
+                && contributing.contains("Real E2E workflow"),
             "missing real E2E status for {agent}"
         );
     }
@@ -123,8 +124,8 @@ fn readme_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
         "Cursor Agent",
     ] {
         assert!(
-            readme.contains(&format!("| {agent} |"))
-                && readme.contains("Simulated protocol + User-Agent regression"),
+            contributing.contains(&format!("| {agent} |"))
+                && contributing.contains("Simulated protocol + User-Agent regression"),
             "missing simulated status for {agent}"
         );
     }

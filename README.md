@@ -8,17 +8,10 @@ configurable model pricing to the collected usage.
 
 The proxy supports direct forwarding or a cascading HTTP/HTTPS/SOCKS5 egress
 proxy (including GOST), TLS MITM for configured hosts, HTTP/1.1 and HTTP/2
-upstream connections, and streaming SSE pass-through without buffering full
-responses.
+upstream connections, streaming SSE pass-through without buffering full
+responses, and bidirectional WebSocket tunneling.
 
-For MITM hosts that use WebSockets, including Codex's `chatgpt.com` endpoint, the
-proxy forwards the HTTP/1.1 upgrade and then tunnels WebSocket frames
-bidirectionally without buffering them. It side-parses server text frames for
-OpenAI Responses `response.completed` usage events and exports their tokens and
-costs through the normal telemetry pipeline. Negotiated `permessage-deflate`
-frames are decompressed only in this observation path, including fragmented
-messages and context takeover; the original handshake and frames are forwarded
-unchanged.
+## Quick start
 
 Build the binary, generate the local root CA once, install the certificate in
 each client trust store, and protect the private key as a secret:
@@ -41,7 +34,9 @@ Shell completions are included in `completions/`. Load the appropriate file
 with `source completions/modeltap.bash`, `source completions/_modeltap`, or
 `source completions/modeltap.fish` for Bash, Zsh, or Fish respectively.
 
-### Node.js clients
+### Client configuration
+
+#### Node.js & Agent CLI clients
 
 Node.js uses its own CA bundle and may not trust a locally installed ModelTap
 root CA. Before starting a Node.js client such as oh-my-pi, point
@@ -72,261 +67,24 @@ Without this setting, MITM requests can fail certificate verification and some
 clients may misleadingly report that their Google API key or OAuth credential is
 missing.
 
-Copy [`config.sample.yaml`](config.sample.yaml) before first use, then adjust its
-certificate paths, telemetry endpoint, egress proxy, sites, and pricing rules.
-The sample includes a complete local configuration, including egress, sites,
-and pricing rules. The following shows the equivalent local configuration:
+## Configuration
 
-```yaml
-proxy:
-  listen: 127.0.0.1:2080
+Copy [`config.sample.yaml`](config.sample.yaml) to `config.yaml` before first use,
+then adjust its certificate paths, telemetry endpoint, egress proxy, sites, and
+pricing rules. See [`config.sample.yaml`](config.sample.yaml) for a complete
+sample configuration.
 
-logging:
-  level: info
+### Sites and egress routing
 
-tls:
-  ca_cert_file: ./certs/modeltap-ca-cert.pem
-  ca_key_file: ./certs/modeltap-ca-key.pem
+- **Hosts allowlist**: Every host configured under `sites` is intercepted with TLS MITM. Each entry matches the domain root and all subdomains at DNS label boundaries (e.g., `googleapis.com` matches `generativelanguage.googleapis.com`). Non-configured hosts are forwarded transparently without MITM.
+- **Egress routing**: The proxy supports default and per-site egress routing to upstream HTTP/HTTPS/SOCKS5 proxies or direct connections.
+- **Automatic detection**: ModelTap automatically detects API protocols (OpenAI, Anthropic, Gemini, DeepSeek, Cursor) and client agent identities (`claude_code`, `codex`, `oh_my_pi`, `gemini_cli`, etc.) without requiring manual provider flags.
 
-telemetry:
-  otlp:
-    endpoint: http://127.0.0.1:4318
-    service_name: modeltap-test
+### Pricing rules
 
-egress:
-  default: privoxy
-  proxies:
-    - id: privoxy
-      url: http://127.0.0.1:8118
+Pricing rules can be configured globally (without a `site`) or with site-specific overrides. When calculating costs, ModelTap first checks for a site-specific rule matching the request's site; if none matches, it falls back to matching global rules.
 
-sites:
-  - id: openai
-    hosts:
-      - chatgpt.com
-  - id: anthropic
-    hosts:
-      - anthropic.com
-  - id: gemini
-    hosts:
-      - googleapis.com
-  - id: deepseek
-    hosts:
-      - api.deepseek.com
-    egress: direct
-  - id: grok
-    hosts:
-      - api.x.ai
-  - id: cursor
-    hosts:
-      - api2.cursor.sh
-
-pricing:
-  timezone: Asia/Shanghai
-  # Official first-party API list prices checked on 2026-08-20.
-  # All rates are USD per 1M tokens. DeepSeek CNY prices were converted with
-  # the 2026-08-19 ECB rates (1 CNY = 0.148407227899 USD).
-  peak_windows:
-    - start: "09:00"
-      end: "12:00"
-    - start: "14:00"
-      end: "18:00"
-  rules:
-    - model: "gpt-5.6-sol*"
-      currency: USD
-      rates:
-        input: 5
-        output: 30
-        cache_read: 0.5
-    - model: "gpt-5.6-terra*"
-      currency: USD
-      rates:
-        input: 2
-        output: 12
-        cache_read: 0.2
-    - model: "gpt-5.6-luna*"
-      currency: USD
-      rates:
-        input: 0.2
-        output: 1.2
-        cache_read: 0.02
-    - model: "claude-opus-4-8*"
-      currency: USD
-      rates:
-        input: 5
-        output: 25
-        cache_read: 0.5
-        cache_write: 6.25
-    - model: "claude-sonnet-4-6*"
-      currency: USD
-      rates:
-        input: 3
-        output: 15
-        cache_read: 0.3
-        cache_write: 3.75
-    - model: "claude-haiku-4-5*"
-      currency: USD
-      rates:
-        input: 1
-        output: 5
-        cache_read: 0.1
-        cache_write: 1.25
-    - model: "gemini-3.7-flash*"
-      currency: USD
-      rates:
-        input: 0.75
-        output: 3.75
-        cache_read: 0.075
-    - model: "deepseek-v4-flash*"
-      currency: USD
-      peak:
-        input: 0.445221684
-        output: 1.335665051
-        cache_read: 0.014840723
-      off_peak:
-        input: 0.222610842
-        output: 0.667832526
-        cache_read: 0.007420361
-    - model: "deepseek-v4-pro*"
-      currency: USD
-      peak:
-        input: 1.335665051
-        output: 4.006995153
-        cache_read: 0.044522168
-      off_peak:
-        input: 0.667832526
-        output: 2.003497577
-        cache_read: 0.022261084
-    # Cursor site-specific overrides
-    - site: cursor
-      model: "gpt-5.6-sol-*"
-      currency: USD
-      rates:
-        input: 2.5
-        output: 15
-        cache_read: 0.25
-    - site: cursor
-      model: "gpt-5.6-terra-*"
-      currency: USD
-      rates:
-        input: 1.25
-        output: 7.5
-        cache_read: 0.125
-    - site: cursor
-      model: "gpt-5.6-luna-*"
-      currency: USD
-      rates:
-        input: 0.5
-        output: 3
-        cache_read: 0.05
-
-With this configuration, OpenAI, Anthropic, and Gemini use the default Privoxy
-egress at `127.0.0.1:8118`. DeepSeek overrides the default with
-`egress: direct` and never uses Privoxy. Grok uses the OpenAI-compatible API at
-`api.x.ai`; Cursor uses `api2.cursor.sh`.
-
-### Sites and protocol detection
-
-`id` is the site identity used in metric labels and `pricing.rules` (for site-specific overrides); use the
-actual service/vendor name, such as `grok`, `cursor`, or `openai`. ModelTap
-detects the usage protocol from each request or response automatically, so site
-configuration does not need a `provider` or `provider_type` field. It recognizes
-Cursor Connect/Protobuf, Gemini usage metadata, Anthropic message events, and
-OpenAI Chat/Responses payloads. A DeepSeek site can therefore report both its
-OpenAI-compatible and Anthropic-compatible traffic without any special setting.
-
-Every host configured under `sites` is always intercepted with TLS MITM. This
-makes `sites` the explicit allowlist of traffic that ModelTap can inspect. Hosts
-absent from `sites` are forwarded without MITM and no usage is collected. Remove
-the former `provider`, `provider_type`, and `mitm` fields when migrating an
-existing configuration.
-
-Each `hosts` entry is a domain root. It matches the configured domain itself and
-all of its subdomains at a DNS label boundary. For example,
-`hosts: [googleapis.com]` matches both `googleapis.com` and
-`generativelanguage.googleapis.com`, but not `notgoogleapis.com`. Do not assign
-overlapping parent and child domains to different sites; configuration
-validation rejects ambiguous domain trees.
-
-The inbound proxy does not require client authentication, including when
-`proxy.listen` uses a non-loopback address such as `0.0.0.0:2080`. A non-loopback
-listener must be protected with a host firewall, private network, or another
-trusted access-control layer to avoid operating an open proxy.
-
-The library automatically detects usage protocols for OpenAI
-Chat/Responses/Embeddings, Anthropic, Gemini, DeepSeek, and Cursor Agent.
-Cursor Agent traffic uses Connect/Protobuf: ModelTap reads the selected model ID
-from each request, so Cursor models such as GPT, Claude, Grok, GLM, Gemini, and
-Composer are reported without a model allowlist. Cursor reports generated-token
-increments; configure `pricing.rules` for `site: cursor` when you want costs.
-Pricing uses decimal arithmetic and daily peak/off-peak windows in the configured IANA timezone.
-DeepSeek accepts both its native OpenAI-compatible responses and the Anthropic
-compatible streaming responses used by Claude Code. Usage metrics include an
-`agent_cli` attribute inferred from client headers (`claude_code`, `codex`,
-`gemini_cli`, `oh_my_pi`, `opencode`, `pi`, `github_copilot`, `amazon_q`,
-`roo_code`, `qwen_code`, `factory_droid`, `crush`, `kiro`, `qoder`,
-`antigravity`, `cursor`, or `unknown`). ModelTap ships stable built-in rules
-rather than exporting raw User-Agent values, which would create high-cardinality
-metrics. Tools without a distinctive request header, including Aider, Goose, and
-Continue, remain `unknown` rather than risking an incorrect classification.
-
-### Agent CLI E2E workflow
-
-[`Agent CLI E2E`](.github/workflows/agent-e2e.yml) is an automated GitHub Actions
-workflow running on pull requests and main branch pushes. It installs the agent
-CLIs, routes each request through ModelTap, and checks the exported Prometheus
-metrics for a positive request and token total with the expected `agent_cli`
-label.
-
-The workflow additionally routes representative requests for every documented
-`agent_cli` value through a local HTTPS upstream. This keeps proprietary,
-OAuth-only, and IDE-only agents covered by the same metric assertion without
-claiming that their vendor client ran in CI.
-
-The workflow uses a local protocol-compatible upstream and a generated test CA;
-it requires no model credentials, external base URL, or billable API calls.
-The following configuration names are retained as examples for running the same
-clients against a real provider outside CI:
-
-| Protocol and client | Secrets | Repository variable |
-| --- | --- | --- |
-| OpenAI Chat Completions via OpenCode | `OPENAI_COMPLETIONS_API_KEY`, `OPENAI_COMPLETIONS_BASE_URL` | `OPENAI_COMPLETIONS_MODEL` |
-| OpenAI Responses via Codex | `OPENAI_RESPONSES_API_KEY`, `OPENAI_RESPONSES_BASE_URL` | `OPENAI_RESPONSES_MODEL` |
-| Anthropic Messages via Claude Code | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL` |
-| Gemini API via Gemini CLI | `GEMINI_API_KEY`, `GEMINI_BASE_URL` | `GEMINI_MODEL` |
-
-Base URLs must include any API prefix required by the provider, such as `/v1`.
-The workflow derives its TLS interception hosts from these URLs at runtime, so
-do not use a URL that redirects to another API hostname.
-
-The table distinguishes real E2E workflow coverage from simulated protocol and
-User-Agent regression coverage. A simulated check validates ModelTap's request
-classification and supported response protocol parsing, but does not claim that
-the vendor client was installed or authenticated in CI.
-
-| Agent | `agent_cli` | Detection | Verification |
-| --- | --- | --- | --- |
-| Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent, `x-claude-code-session-id` header | Real E2E workflow |
-| Codex | `codex` | `codex` User-Agent, `originator: codex_exec` header | Real E2E workflow |
-| oh-my-pi | `oh_my_pi` | `oh-my-pi`/`omp` User-Agent, `x-oh-my-pi`/`x-omp`, `x-ghost-mode`, or Cursor CLI header | Real E2E workflow |
-| Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent, `x-gemini-api-privileged-user-id` header | Real E2E workflow |
-| OpenCode | `opencode` | `opencode` User-Agent, `originator: opencode` header | Real E2E workflow |
-| Pi | `pi` | `pi` User-Agent, `x-opencode-client: pi`, `X-OpenRouter-Title: pi`, `X-BILLING-INVOKE-ORIGIN: Pi` | Real E2E workflow |
-| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent, `x-interaction-type` header | Real E2E workflow |
-| Amazon Q | `amazon_q` | `AmazonQ-For-CLI` User-Agent | Simulated protocol + User-Agent regression |
-| Roo Code | `roo_code` | `RooCode/` User-Agent | Simulated protocol + User-Agent regression |
-| Qwen Code | `qwen_code` | `QwenCode/` User-Agent | Real E2E workflow |
-| Factory Droid | `factory_droid` | `factory-cli/` User-Agent | Simulated protocol + User-Agent regression |
-| Crush | `crush` | `Charm-Crush/` User-Agent | Simulated protocol + User-Agent regression |
-| Kiro | `kiro` | `kiro-ide/` User-Agent | Simulated protocol + User-Agent regression |
-| Qoder | `qoder` | `Qoder-Cli` User-Agent | Simulated protocol + User-Agent regression |
-| Antigravity | `antigravity` | `antigravity/` User-Agent | Simulated protocol + User-Agent regression |
-| Cursor Agent | `cursor` | Cursor Connect/Protobuf request without oh-my-pi headers | Simulated protocol + User-Agent regression |
-
-Pricing rules can be configured globally (without a `site`) or for a specific `site`.
-When calculating costs, ModelTap first checks for a site-specific rule matching the request's site; if none matches, it falls back to matching global rules. This allows configuring default prices for a model once across all sites while overriding rates for specific sites where pricing differs.
-
-Use a single `rates` block for a model whose prices do not vary by time. These
-rules can coexist with global `peak_windows` used by other models:
+Use a single `rates` block for fixed pricing, or configure `peak_windows` with separate `peak` and `off_peak` rates:
 
 ```yaml
 pricing:
@@ -346,10 +104,20 @@ pricing:
         input: 0.015
         output: 0
 ```
-Each peak window has separate `start` and `end` fields in `HH:MM` format. Windows
-may cross midnight (for example `start: "22:00"`, `end: "02:00"`) but must not
-overlap. The legacy string form (`"09:00-12:00"`) remains accepted for existing
-configurations.
+
+Each peak window has separate `start` and `end` fields in `HH:MM` format. Windows may cross midnight (for example `start: "22:00"`, `end: "02:00"`) but must not overlap.
+
+## Telemetry and observability
+
+When `telemetry.otlp` is set, usage events are exported through OTLP/HTTP to
+`<endpoint>/v1/metrics`. The exported metrics are `ai_proxy_requests`,
+`ai_proxy_tokens`, and `ai_proxy_cost`; labels are limited to `site`,
+`model`, `agent_cli`, token type, price period, and currency.
+
+For an end-to-end Grafana Cloud setup—including installing Grafana Alloy on
+macOS or Linux, creating a least-privilege Cloud Access Policy token,
+configuring remote write, validating the pipeline, and importing the bundled
+dashboard—follow the [Grafana Alloy and Grafana Cloud guide](docs/index.html#alloy).
 
 ## Debug logging
 
@@ -365,16 +133,9 @@ logging:
 
 Body previews are capped at 4 KiB per chunk and authentication headers are never
 logged. Set `logging.file` to append the same logs to a file while retaining
-stderr output; ModelTap creates the file but not its parent directory. Debug
-output can still include prompt and model-response content; enable it only in a
-trusted environment.
+stderr output. Debug output can still include prompt and model-response content;
+enable it only in a trusted environment.
 
-When `telemetry.otlp` is set, usage events are exported through OTLP/HTTP to
-`<endpoint>/v1/metrics`. The exported metrics are `ai_proxy_requests`,
-`ai_proxy_tokens`, and `ai_proxy_cost`; labels are limited to `site`,
-`model`, `agent_cli`, token type, price period, and currency.
+## Contributing and architecture
 
-For an end-to-end Grafana Cloud setup—including installing Grafana Alloy on
-macOS or Linux, creating a least-privilege Cloud Access Policy token,
-configuring remote write, validating the pipeline, and importing the bundled
-dashboard—follow the [Grafana Alloy and Grafana Cloud guide](docs/index.html#alloy).
+For architecture details, internal protocol parser design, agent CLI detection rules, and testing workflows, see [CONTRIBUTING.md](CONTRIBUTING.md).
