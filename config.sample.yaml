@@ -49,12 +49,22 @@ pricing:
   timezone: Asia/Shanghai
   # Official first-party API list prices checked on 2026-08-21.
   # All rates are USD per 1M tokens. DeepSeek's official CNY prices use its
-  # Beijing-time peak windows and are converted with the 2026-08-19 ECB rates:
+  # Beijing-time workday peak windows (weekends are off-peak) and are converted
+  # with the 2026-08-19 ECB rates:
   # 1 EUR = 7.8197 CNY and 1 EUR = 1.1605 USD (1 CNY = 0.148407227899 USD).
+  #
+  # Peak windows can be configured globally or per model rule:
+  # - weekdays (optional): Array of days when the peak window applies.
+  #   Accepts numbers (1=Monday ... 7=Sunday, e.g. [1, 2, 3, 4, 5]),
+  #   short names (["Mon", "Tue", ...]), or full names (["Monday", ...]).
+  #   If omitted, defaults to all days [1, 2, 3, 4, 5, 6, 7].
+  # - start / end: Time in "HH:MM" format (e.g. "09:00", "12:00").
   peak_windows:
-    - start: "09:00"
+    - weekdays: [1, 2, 3, 4, 5]
+      start: "09:00"
       end: "12:00"
-    - start: "14:00"
+    - weekdays: [1, 2, 3, 4, 5]
+      start: "14:00"
       end: "18:00"
   rules:
     # Rules without a `site` apply globally to all sites (e.g. direct API access,
@@ -233,8 +243,17 @@ pricing:
         cache_read: 0.075
 
     # DeepSeek models (with peak/off-peak pricing)
+    # Peak windows can be configured globally under `pricing.peak_windows`
+    # or specified per-model with `peak_windows`.
     - model: "deepseek-v4-flash*"
       currency: USD
+      peak_windows:
+        - weekdays: [1, 2, 3, 4, 5]
+          start: "09:00"
+          end: "12:00"
+        - weekdays: [1, 2, 3, 4, 5]
+          start: "14:00"
+          end: "18:00"
       peak:
         input: 0.445221684
         output: 1.335665051
@@ -245,6 +264,13 @@ pricing:
         cache_read: 0.007420361
     - model: "deepseek-v4-pro*"
       currency: USD
+      peak_windows:
+        - weekdays: [1, 2, 3, 4, 5]
+          start: "09:00"
+          end: "12:00"
+        - weekdays: [1, 2, 3, 4, 5]
+          start: "14:00"
+          end: "18:00"
       peak:
         input: 1.335665051
         output: 4.006995153

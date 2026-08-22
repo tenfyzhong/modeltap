@@ -134,9 +134,11 @@ pricing:
   # All rates are USD per 1M tokens. DeepSeek CNY prices were converted with
   # the 2026-08-19 ECB rates (1 CNY = 0.148407227899 USD).
   peak_windows:
-    - start: "09:00"
+    - weekdays: [1, 2, 3, 4, 5]
+      start: "09:00"
       end: "12:00"
-    - start: "14:00"
+    - weekdays: [1, 2, 3, 4, 5]
+      start: "14:00"
       end: "18:00"
   rules:
     - model: "gpt-5.6-sol*"
@@ -186,6 +188,13 @@ pricing:
         cache_read: 0.075
     - model: "deepseek-v4-flash*"
       currency: USD
+      peak_windows:
+        - weekdays: [1, 2, 3, 4, 5]
+          start: "09:00"
+          end: "12:00"
+        - weekdays: [1, 2, 3, 4, 5]
+          start: "14:00"
+          end: "18:00"
       peak:
         input: 0.445221684
         output: 1.335665051
@@ -196,6 +205,13 @@ pricing:
         cache_read: 0.007420361
     - model: "deepseek-v4-pro*"
       currency: USD
+      peak_windows:
+        - weekdays: [1, 2, 3, 4, 5]
+          start: "09:00"
+          end: "12:00"
+        - weekdays: [1, 2, 3, 4, 5]
+          start: "14:00"
+          end: "18:00"
       peak:
         input: 1.335665051
         output: 4.006995153
@@ -226,7 +242,7 @@ pricing:
         input: 0.5
         output: 3
         cache_read: 0.05</code></pre>
-  <p>With this configuration, Grok uses the OpenAI-compatible API at <code>api.x.ai</code> and Cursor uses <code>api2.cursor.sh</code>. Rates are per million tokens. Pricing rules can be configured globally (without a <code>site</code>) or for a specific <code>site</code> as an override. Peak windows use the configured IANA timezone, may cross midnight, and must not overlap. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
+  <p>With this configuration, Grok uses the OpenAI-compatible API at <code>api.x.ai</code> and Cursor uses <code>api2.cursor.sh</code>. Rates are per million tokens. Pricing rules can be configured globally (without a <code>site</code>) or for a specific <code>site</code> as an override. Peak windows can be configured globally or customized per model with an optional <code>weekdays</code> array (e.g. <code>weekdays: [1, 2, 3, 4, 5]</code> or <code>weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"]</code> where 1 / "Mon" / "Monday" = Monday to 7 / "Sun" / "Sunday" = Sunday), may cross midnight, and must not overlap on the same day. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
   <pre><code>rates:
   input: 0.02
   output: 0</code></pre>

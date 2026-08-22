@@ -224,6 +224,289 @@ fn uses_daily_peak_windows_in_the_configured_timezone() {
 }
 
 #[test]
+fn supports_day_of_week_peak_windows_and_model_level_overrides() {
+    let yaml = r#"
+pricing:
+  timezone: Asia/Shanghai
+  peak_windows:
+    # 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday
+    - weekdays: [1, 2, 3, 4, 5]
+      start: "09:00"
+      end: "12:00"
+    - weekdays: [1, 2, 3, 4, 5]
+      start: "14:00"
+      end: "18:00"
+  rules:
+    # Uses global peak windows (Mon-Fri 09:00-12:00, 14:00-18:00)
+    - model: "deepseek-default-*"
+      currency: USD
+      peak:
+        input: 1.0
+        output: 2.0
+      off_peak:
+        input: 0.5
+        output: 1.0
+    # Overrides with custom weekend peak windows (6=Saturday, 7=Sunday)
+    - model: "weekend-model-*"
+      currency: USD
+      peak_windows:
+        - weekdays: [6, 7]
+          start: "10:00"
+          end: "14:00"
+      peak:
+        input: 3.0
+        output: 6.0
+      off_peak:
+        input: 1.5
+        output: 3.0
+    # Overrides with Friday/Saturday (5, 6) midnight-crossing window
+    - model: "custom-night-*"
+      currency: USD
+      peak_windows:
+        - weekdays: [5, 6]
+          start: "22:00"
+          end: "02:00"
+      peak:
+        input: 4.0
+        output: 8.0
+      off_peak:
+        input: 2.0
+        output: 4.0
+"#;
+    let config = Config::from_yaml(yaml).expect("valid config");
+    let book = PriceBook::from_config(&config.pricing).expect("valid price book");
+
+    // Thursday 10:00 Shanghai (02:00 UTC) -> Thursday (weekday, day 4)
+    let thursday_10am = Utc.with_ymd_and_hms(2026, 8, 20, 2, 0, 0).unwrap();
+    // Thursday 13:00 Shanghai (05:00 UTC)
+    let thursday_1pm = Utc.with_ymd_and_hms(2026, 8, 20, 5, 0, 0).unwrap();
+    // Friday 23:00 Shanghai (15:00 UTC)
+    let friday_11pm = Utc.with_ymd_and_hms(2026, 8, 21, 15, 0, 0).unwrap();
+    // Saturday 01:00 Shanghai (17:00 UTC Friday)
+    let saturday_1am = Utc.with_ymd_and_hms(2026, 8, 21, 17, 0, 0).unwrap();
+    // Saturday 11:00 Shanghai (03:00 UTC)
+    let saturday_11am = Utc.with_ymd_and_hms(2026, 8, 22, 3, 0, 0).unwrap();
+    // Sunday 11:00 Shanghai (03:00 UTC)
+    let sunday_11am = Utc.with_ymd_and_hms(2026, 8, 23, 3, 0, 0).unwrap();
+    // Sunday 15:00 Shanghai (07:00 UTC)
+    let sunday_3pm = Utc.with_ymd_and_hms(2026, 8, 23, 7, 0, 0).unwrap();
+
+    // 1. deepseek-default (inherits global Mon-Fri 09-12, 14-18)
+    let d1 = book
+        .lookup("any", "deepseek-default-1", thursday_10am)
+        .unwrap();
+    assert_eq!(d1.period, PricePeriod::Peak);
+    assert_eq!(d1.rate(TokenType::Input).unwrap().to_string(), "1");
+
+    let d2 = book
+        .lookup("any", "deepseek-default-1", thursday_1pm)
+        .unwrap();
+    assert_eq!(d2.period, PricePeriod::OffPeak);
+    assert_eq!(d2.rate(TokenType::Input).unwrap().to_string(), "0.5");
+
+    let d3 = book
+        .lookup("any", "deepseek-default-1", saturday_11am)
+        .unwrap();
+    assert_eq!(d3.period, PricePeriod::OffPeak);
+    assert_eq!(d3.rate(TokenType::Input).unwrap().to_string(), "0.5");
+
+    // 2. weekend-model (overrides with Sat-Sun [6, 7] 10:00-14:00)
+    let w1 = book
+        .lookup("any", "weekend-model-1", thursday_10am)
+        .unwrap();
+    assert_eq!(w1.period, PricePeriod::OffPeak);
+    assert_eq!(w1.rate(TokenType::Input).unwrap().to_string(), "1.5");
+
+    let w2 = book
+        .lookup("any", "weekend-model-1", saturday_11am)
+        .unwrap();
+    assert_eq!(w2.period, PricePeriod::Peak);
+    assert_eq!(w2.rate(TokenType::Input).unwrap().to_string(), "3");
+
+    let w3 = book.lookup("any", "weekend-model-1", sunday_11am).unwrap();
+    assert_eq!(w3.period, PricePeriod::Peak);
+
+    let w4 = book.lookup("any", "weekend-model-1", sunday_3pm).unwrap();
+    assert_eq!(w4.period, PricePeriod::OffPeak);
+
+    // 3. custom-night (overrides with Fri-Sat [5, 6] 22:00-02:00)
+    let n1 = book.lookup("any", "custom-night-1", friday_11pm).unwrap();
+    assert_eq!(n1.period, PricePeriod::Peak);
+
+    let n2 = book.lookup("any", "custom-night-1", saturday_1am).unwrap();
+    assert_eq!(n2.period, PricePeriod::Peak);
+
+    let n3 = book.lookup("any", "custom-night-1", thursday_10am).unwrap();
+    assert_eq!(n3.period, PricePeriod::OffPeak);
+}
+
+#[test]
+fn detects_peak_window_overlaps_per_day_and_across_midnight() {
+    // Same time on different days is valid (no overlap)
+    let valid_yaml = r#"
+pricing:
+  timezone: UTC
+  peak_windows:
+    - weekdays: [1, 3, 5]
+      start: "09:00"
+      end: "12:00"
+    - weekdays: [2, 4]
+      start: "09:00"
+      end: "12:00"
+  rules:
+    - model: "*"
+      currency: USD
+      rates: { input: 1.0 }
+"#;
+    assert!(Config::from_yaml(valid_yaml).is_ok());
+
+    // Overlap on same day (Wednesday = 3 is in both)
+    let overlap_yaml = r#"
+pricing:
+  timezone: UTC
+  peak_windows:
+    - weekdays: [1, 2, 3]
+      start: "09:00"
+      end: "12:00"
+    - weekdays: [3, 4, 5]
+      start: "11:00"
+      end: "14:00"
+  rules:
+    - model: "*"
+      currency: USD
+      rates: { input: 1.0 }
+"#;
+    assert!(Config::from_yaml(overlap_yaml).is_err());
+
+    // Invalid day number (e.g. 0 or 8)
+    let invalid_day_yaml = r#"
+pricing:
+  timezone: UTC
+  peak_windows:
+    - weekdays: [0, 8]
+      start: "09:00"
+      end: "12:00"
+  rules:
+    - model: "*"
+      currency: USD
+      rates: { input: 1.0 }
+"#;
+    assert!(Config::from_yaml(invalid_day_yaml).is_err());
+}
+
+#[test]
+fn supports_weekdays_aliases_days_of_week_and_day_of_week() {
+    let yaml = r#"
+pricing:
+  timezone: UTC
+  peak_windows:
+    - days_of_week: [1, 2, 3, 4, 5]
+      start: "09:00"
+      end: "12:00"
+    - day_of_week: [6, 7]
+      start: "14:00"
+      end: "18:00"
+  rules:
+    - model: "*"
+      currency: USD
+      rates: { input: 1.0 }
+"#;
+    assert!(Config::from_yaml(yaml).is_ok());
+}
+
+#[test]
+fn supports_weekday_name_strings_short_and_full_and_mixed() {
+    let yaml = r#"
+pricing:
+  timezone: Asia/Shanghai
+  rules:
+    - model: "model-short-names"
+      currency: USD
+      peak_windows:
+        - weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+          start: "09:00"
+          end: "12:00"
+      peak: { input: 1.0 }
+      off_peak: { input: 0.5 }
+    - model: "model-full-names"
+      currency: USD
+      peak_windows:
+        - weekdays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+          start: "09:00"
+          end: "12:00"
+      peak: { input: 1.0 }
+      off_peak: { input: 0.5 }
+    - model: "model-mixed-and-case-insensitive"
+      currency: USD
+      peak_windows:
+        - weekdays: ["mon", 2, "WEDNESDAY", 4, "Fri"]
+          start: "09:00"
+          end: "12:00"
+      peak: { input: 1.0 }
+      off_peak: { input: 0.5 }
+"#;
+    let config = Config::from_yaml(yaml).expect("valid config with weekday names");
+    let book = PriceBook::from_config(&config.pricing).expect("valid price book");
+
+    let thursday_10am = Utc.with_ymd_and_hms(2026, 8, 20, 2, 0, 0).unwrap(); // Thursday (day 4) 10:00 Shanghai
+    let saturday_10am = Utc.with_ymd_and_hms(2026, 8, 22, 2, 0, 0).unwrap(); // Saturday (day 6) 10:00 Shanghai
+
+    assert_eq!(
+        book.lookup("any", "model-short-names", thursday_10am)
+            .unwrap()
+            .period,
+        PricePeriod::Peak
+    );
+    assert_eq!(
+        book.lookup("any", "model-short-names", saturday_10am)
+            .unwrap()
+            .period,
+        PricePeriod::OffPeak
+    );
+
+    assert_eq!(
+        book.lookup("any", "model-full-names", thursday_10am)
+            .unwrap()
+            .period,
+        PricePeriod::Peak
+    );
+    assert_eq!(
+        book.lookup("any", "model-full-names", saturday_10am)
+            .unwrap()
+            .period,
+        PricePeriod::OffPeak
+    );
+
+    assert_eq!(
+        book.lookup("any", "model-mixed-and-case-insensitive", thursday_10am)
+            .unwrap()
+            .period,
+        PricePeriod::Peak
+    );
+    assert_eq!(
+        book.lookup("any", "model-mixed-and-case-insensitive", saturday_10am)
+            .unwrap()
+            .period,
+        PricePeriod::OffPeak
+    );
+
+    // Invalid weekday string
+    let invalid_name_yaml = r#"
+pricing:
+  timezone: UTC
+  peak_windows:
+    - weekdays: ["Monday", "Funday"]
+      start: "09:00"
+      end: "12:00"
+  rules:
+    - model: "*"
+      currency: USD
+      rates: { input: 1.0 }
+"#;
+    assert!(Config::from_yaml(invalid_name_yaml).is_err());
+}
+
+#[test]
 fn config_sample_uses_official_deepseek_v4_prices_converted_to_usd() {
     let config = Config::from_yaml(include_str!("../config.sample.yaml")).unwrap();
     assert_eq!(config.egress_for_site("deepseek").unwrap().id, "direct");
@@ -265,6 +548,17 @@ fn config_sample_uses_official_deepseek_v4_prices_converted_to_usd() {
     assert_eq!(
         pro.rate(TokenType::Output).unwrap().to_string(),
         "2.003497577"
+    );
+
+    let weekend_during_peak_window = Utc.with_ymd_and_hms(2026, 8, 22, 2, 0, 0).unwrap();
+    let flash_weekend = book
+        .lookup("deepseek", "deepseek-v4-flash", weekend_during_peak_window)
+        .unwrap();
+    assert_eq!(flash_weekend.currency, "USD");
+    assert_eq!(flash_weekend.period, PricePeriod::OffPeak);
+    assert_eq!(
+        flash_weekend.rate(TokenType::Input).unwrap().to_string(),
+        "0.222610842"
     );
 }
 

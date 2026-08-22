@@ -84,28 +84,44 @@ sample configuration.
 
 Pricing rules can be configured globally (without a `site`) or with site-specific overrides. When calculating costs, ModelTap first checks for a site-specific rule matching the request's site; if none matches, it falls back to matching global rules.
 
-Use a single `rates` block for fixed pricing, or configure `peak_windows` with separate `peak` and `off_peak` rates:
+Use a single `rates` block for fixed pricing, or configure `peak_windows` with separate `peak` and `off_peak` rates. Peak windows can be configured globally under `pricing.peak_windows` or customized per model/rule:
 
 ```yaml
 pricing:
   timezone: Asia/Shanghai
+  peak_windows:
+    - weekdays: [1, 2, 3, 4, 5]
+      start: "09:00"
+      end: "12:00"
+    - weekdays: [1, 2, 3, 4, 5]
+      start: "14:00"
+      end: "18:00"
   rules:
-    # Global rule applicable to any site
-    - model: text-embedding-3-*
+    # Uses global peak windows (Mon-Fri 09:00-12:00, 14:00-18:00)
+    - model: deepseek-*
       currency: USD
-      rates:
-        input: 0.02
-        output: 0
-    # Site-specific override
-    - site: custom_gateway
-      model: text-embedding-3-*
+      peak:
+        input: 0.445
+        output: 1.336
+      off_peak:
+        input: 0.223
+        output: 0.668
+    # Custom peak windows overriding global defaults for a specific model
+    - model: custom-night-*
       currency: USD
-      rates:
-        input: 0.015
-        output: 0
+      peak_windows:
+        - weekdays: [5, 6]
+          start: "22:00"
+          end: "02:00"
+      peak:
+        input: 2.0
+        output: 4.0
+      off_peak:
+        input: 1.0
+        output: 2.0
 ```
 
-Each peak window has separate `start` and `end` fields in `HH:MM` format. Windows may cross midnight (for example `start: "22:00"`, `end: "02:00"`) but must not overlap.
+Each peak window specifies `start` and `end` times in `HH:MM` format and an optional `weekdays` array (e.g. `weekdays: [1, 2, 3, 4, 5]` or `weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"]`, where `1` / `"Mon"` / `"Monday"` = Monday through `7` / `"Sun"` / `"Sunday"` = Sunday; defaults to all days `[1, 2, 3, 4, 5, 6, 7]`). Windows may cross midnight (for example `start: "22:00"`, `end: "02:00"`) but must not overlap on the same day.
 
 ## Telemetry and observability
 

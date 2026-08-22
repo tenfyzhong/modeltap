@@ -77,6 +77,7 @@ pub fn create_test_observer(site: &str) -> UsageObserver {
                 }),
                 peak: None,
                 off_peak: None,
+                peak_windows: None,
             },
             PriceRuleConfig {
                 site: Some("anthropic".to_owned()),
@@ -90,6 +91,7 @@ pub fn create_test_observer(site: &str) -> UsageObserver {
                 }),
                 peak: None,
                 off_peak: None,
+                peak_windows: None,
             },
             PriceRuleConfig {
                 site: Some("gemini".to_owned()),
@@ -103,6 +105,7 @@ pub fn create_test_observer(site: &str) -> UsageObserver {
                 }),
                 peak: None,
                 off_peak: None,
+                peak_windows: None,
             },
             PriceRuleConfig {
                 site: Some("deepseek".to_owned()),
@@ -116,6 +119,7 @@ pub fn create_test_observer(site: &str) -> UsageObserver {
                 }),
                 peak: None,
                 off_peak: None,
+                peak_windows: None,
             },
             PriceRuleConfig {
                 site: Some("cursor".to_owned()),
@@ -129,6 +133,7 @@ pub fn create_test_observer(site: &str) -> UsageObserver {
                 }),
                 peak: None,
                 off_peak: None,
+                peak_windows: None,
             },
         ],
     };
