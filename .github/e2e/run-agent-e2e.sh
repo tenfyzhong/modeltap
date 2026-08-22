@@ -197,6 +197,17 @@ timeout 180s claude --bare --print --no-session-persistence \
 
 export GOOGLE_GEMINI_BASE_URL="$GEMINI_BASE_URL"
 export GEMINI_TELEMETRY_ENABLED=false
+export GEMINI_CLI_TRUST_WORKSPACE="true"
+mkdir -p "$HOME/.gemini"
+cat > "$HOME/.gemini/settings.json" << 'EOF'
+{
+  "security": {
+    "auth": {
+      "selectedType": "gemini-api-key"
+    }
+  }
+}
+EOF
 timeout 180s gemini --yolo --model "$GEMINI_MODEL" \
   --prompt "Reply exactly E2E_OK." </dev/null >"$ARTIFACTS_DIR/gemini.txt"
 
