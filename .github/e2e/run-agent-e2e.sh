@@ -106,7 +106,13 @@ OTEL_METRIC_EXPORT_INTERVAL=1000 ./target/debug/modeltap run --config "$CONFIG_P
 MODEL_TAP_PID=$!
 trap 'kill "$MODEL_TAP_PID" "$SIMULATED_UPSTREAM_PID" 2>/dev/null || true; docker logs modeltap-e2e-otel >"$ARTIFACTS_DIR/otel-collector.log" 2>&1 || true' EXIT
 
-sleep 1
+for i in $(seq 1 30); do
+  if curl --silent --fail --proxy "" http://127.0.0.1:2080 >/dev/null 2>&1 || \
+     curl --silent --fail --proxy "" --head http://127.0.0.1:2080 >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
 
 export XDG_CONFIG_HOME="$RUNNER_TEMP/opencode-config"
 mkdir -p "$XDG_CONFIG_HOME/opencode"
@@ -118,7 +124,7 @@ from pathlib import Path
 
 Path(os.environ["E2E_OPENCODE_CONFIG"]).write_text(json.dumps({
     "$schema": "https://opencode.ai/config.json",
-    "providers": {
+    "provider": {
         "e2e-completions": {
             "name": "E2E OpenAI Completions",
             "env": ["OPENAI_COMPLETIONS_API_KEY"],
