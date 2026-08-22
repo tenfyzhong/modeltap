@@ -27,6 +27,12 @@ jobs:
         with:
           node-version: 22
 
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install agent CLIs
         run: npm install --global @anthropic-ai/claude-code @github/copilot @google/gemini-cli @mariozechner/pi-coding-agent @openai/codex @qwen-code/qwen-code oh-my-pi opencode-ai
 
