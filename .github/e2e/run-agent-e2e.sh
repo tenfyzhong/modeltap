@@ -188,17 +188,17 @@ Path(os.environ["E2E_CODEX_CONFIG"]).write_text(
 )
 PY
 timeout 180s codex exec --ephemeral --skip-git-repo-check --sandbox read-only \
-  --model "$OPENAI_RESPONSES_MODEL" "Reply exactly E2E_OK." \
+  --model "$OPENAI_RESPONSES_MODEL" "Reply exactly E2E_OK." </dev/null \
   >"$ARTIFACTS_DIR/codex.txt"
 
 timeout 180s claude --bare --print --no-session-persistence \
-  --max-budget-usd 0.10 --model "$ANTHROPIC_MODEL" "Reply exactly E2E_OK." \
+  --max-budget-usd 0.10 --model "$ANTHROPIC_MODEL" "Reply exactly E2E_OK." </dev/null \
   >"$ARTIFACTS_DIR/claude.txt"
 
 export GOOGLE_GEMINI_BASE_URL="$GEMINI_BASE_URL"
 export GEMINI_TELEMETRY_ENABLED=false
 timeout 180s gemini --yolo --model "$GEMINI_MODEL" \
-  --prompt "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/gemini.txt"
+  --prompt "Reply exactly E2E_OK." </dev/null >"$ARTIFACTS_DIR/gemini.txt"
 
 python3 .github/e2e/simulate_agents.py \
   --url "https://$SIMULATED_HOST:$SIMULATED_PORT/v1/chat/completions" \

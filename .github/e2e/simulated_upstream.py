@@ -31,14 +31,57 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Content-Type", "").startswith("application/connect+proto"):
             body, content_type = cursor_response(), "application/connect+proto"
         elif self.path.endswith("/responses"):
-            body = b"data: {\"type\":\"response.completed\",\"response\":{\"model\":\"simulated-model\",\"usage\":{\"input_tokens\":3,\"output_tokens\":5}}}\n\ndata: [DONE]\n\n"
+            body = (
+                b'data: {"type":"response.created","response":{"id":"resp_123","object":"response","status":"in_progress","model":"simulated-model","output":[]}}\n\n'
+                b'data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_123","type":"message","role":"assistant","status":"in_progress","content":[]}}\n\n'
+                b'data: {"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"text","text":""}}\n\n'
+                b'data: {"type":"response.text.delta","output_index":0,"content_index":0,"delta":"E2E_OK"}\n\n'
+                b'data: {"type":"response.text.done","output_index":0,"content_index":0,"text":"E2E_OK"}\n\n'
+                b'data: {"type":"response.content_part.done","output_index":0,"content_index":0,"part":{"type":"text","text":"E2E_OK"}}\n\n'
+                b'data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_123","type":"message","role":"assistant","status":"completed","content":[{"type":"text","text":"E2E_OK"}]}}\n\n'
+                b'data: {"type":"response.completed","response":{"id":"resp_123","object":"response","status":"completed","model":"simulated-model","output":[{"id":"msg_123","type":"message","role":"assistant","status":"completed","content":[{"type":"text","text":"E2E_OK"}]}],"usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8,"input_token_details":{"cached_tokens":0},"output_token_details":{"reasoning_tokens":0}}}}\n\n'
+                b'data: [DONE]\n\n'
+            )
             content_type = "text/event-stream"
         elif self.path.endswith("/messages"):
-            body = b"event: message_start\ndata: {\"message\":{\"model\":\"simulated-model\",\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\nevent: message_delta\ndata: {\"usage\":{\"input_tokens\":3,\"output_tokens\":5}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            body = (
+                b'event: message_start\n'
+                b'data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","model":"simulated-model","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":3,"output_tokens":0}}}\n\n'
+                b'event: content_block_start\n'
+                b'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n'
+                b'event: content_block_delta\n'
+                b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"E2E_OK"}}\n\n'
+                b'event: content_block_stop\n'
+                b'data: {"type":"content_block_stop","index":0}\n\n'
+                b'event: message_delta\n'
+                b'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":5}}\n\n'
+                b'event: message_stop\n'
+                b'data: {"type":"message_stop"}\n\n'
+            )
             content_type = "text/event-stream"
         elif "generateContent" in self.path:
-            body = json.dumps({"candidates": [{"content": {"parts": [{"text": "E2E_OK"}]}}], "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 5}}).encode()
-            content_type = "application/json"
+            resp_data = {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [{"text": "E2E_OK"}],
+                            "role": "model"
+                        },
+                        "finishReason": "STOP"
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 3,
+                    "candidatesTokenCount": 5,
+                    "totalTokenCount": 8
+                }
+            }
+            if "alt=sse" in self.path or "streamGenerateContent" in self.path:
+                body = f"data: {json.dumps(resp_data)}\n\n".encode()
+                content_type = "text/event-stream"
+            else:
+                body = json.dumps(resp_data).encode()
+                content_type = "application/json"
         else:
             request = json.loads(request_body or b"{}")
             if request.get("stream"):
