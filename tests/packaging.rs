@@ -48,6 +48,9 @@ fn agent_e2e_workflow_exercises_each_supported_protocol_and_agent() {
     let runner = include_str!("../.github/e2e/run-agent-e2e.sh");
 
     assert!(workflow.contains("workflow_dispatch:"));
+    assert!(workflow.contains("pull_request:"));
+    assert!(workflow.contains("push:"));
+    assert!(workflow.contains("- main"));
     assert!(!workflow.contains("secrets."));
     assert!(runner.contains("simulated_upstream.py"));
     assert!(runner.contains("OPENAI_COMPLETIONS_API_KEY=\"modeltap-e2e\""));
@@ -58,6 +61,8 @@ fn agent_e2e_workflow_exercises_each_supported_protocol_and_agent() {
     assert!(runner.contains("codex"));
     assert!(runner.contains("claude"));
     assert!(runner.contains("gemini"));
+    assert!(runner.contains("copilot"));
+    assert!(runner.contains("qwen"));
     assert!(runner.contains("simulate_agents.py"));
     assert!(runner.contains("assert_metrics.py"));
 
@@ -98,6 +103,8 @@ fn readme_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
         "Gemini CLI",
         "OpenCode",
         "Pi",
+        "GitHub Copilot CLI",
+        "Qwen Code",
     ] {
         assert!(
             readme.contains(&format!("| {agent} |")) && readme.contains("Real E2E workflow"),

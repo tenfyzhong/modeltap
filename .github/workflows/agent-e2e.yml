@@ -1,6 +1,10 @@
 name: Agent CLI E2E
 
 on:
+  pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -24,7 +28,7 @@ jobs:
           node-version: 22
 
       - name: Install agent CLIs
-        run: npm install --global @anthropic-ai/claude-code @google/gemini-cli @mariozechner/pi-coding-agent @openai/codex oh-my-pi opencode-ai
+        run: npm install --global @anthropic-ai/claude-code @github/copilot @google/gemini-cli @mariozechner/pi-coding-agent @openai/codex @qwen-code/qwen-code oh-my-pi opencode-ai
 
       - name: Build ModelTap
         run: cargo build --locked

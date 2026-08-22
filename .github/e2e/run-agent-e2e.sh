@@ -140,6 +140,20 @@ timeout 180s omp --extension .github/e2e/pi-openai-provider.ts \
   --provider e2e-openai --model "$OPENAI_COMPLETIONS_MODEL" --no-tools --no-session \
   --print "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/oh-my-pi.txt"
 
+export COPILOT_PROVIDER_BASE_URL="$OPENAI_COMPLETIONS_BASE_URL"
+export COPILOT_PROVIDER_API_KEY="$OPENAI_COMPLETIONS_API_KEY"
+export COPILOT_PROVIDER_TYPE=openai
+export COPILOT_MODEL="$OPENAI_COMPLETIONS_MODEL"
+export COPILOT_OFFLINE=true
+timeout 180s copilot --allow-all-tools --prompt "Reply exactly E2E_OK." \
+  >"$ARTIFACTS_DIR/copilot.txt"
+
+export OPENAI_API_KEY="$OPENAI_COMPLETIONS_API_KEY"
+export OPENAI_BASE_URL="$OPENAI_COMPLETIONS_BASE_URL"
+export OPENAI_MODEL="$OPENAI_COMPLETIONS_MODEL"
+timeout 180s qwen --model "$OPENAI_COMPLETIONS_MODEL" --prompt "Reply exactly E2E_OK." \
+  >"$ARTIFACTS_DIR/qwen.txt"
+
 export CODEX_HOME="$RUNNER_TEMP/codex-home"
 mkdir -p "$CODEX_HOME"
 export E2E_CODEX_CONFIG="$CODEX_HOME/config.toml"

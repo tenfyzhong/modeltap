@@ -299,10 +299,10 @@ the vendor client was installed or authenticated in CI.
 | Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent | Real E2E workflow |
 | OpenCode | `opencode` | `opencode` User-Agent | Real E2E workflow |
 | Pi | `pi` | `pi (` User-Agent | Real E2E workflow |
-| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent | Simulated protocol + User-Agent regression |
+| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent | Real E2E workflow |
 | Amazon Q | `amazon_q` | `AmazonQ-For-CLI` User-Agent | Simulated protocol + User-Agent regression |
 | Roo Code | `roo_code` | `RooCode/` User-Agent | Simulated protocol + User-Agent regression |
-| Qwen Code | `qwen_code` | `QwenCode/` User-Agent | Simulated protocol + User-Agent regression |
+| Qwen Code | `qwen_code` | `QwenCode/` User-Agent | Real E2E workflow |
 | Factory Droid | `factory_droid` | `factory-cli/` User-Agent | Simulated protocol + User-Agent regression |
 | Crush | `crush` | `Charm-Crush/` User-Agent | Simulated protocol + User-Agent regression |
 | Kiro | `kiro` | `kiro-ide/` User-Agent | Simulated protocol + User-Agent regression |
