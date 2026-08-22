@@ -304,6 +304,89 @@ fn config_sample_prices_cursor_models_at_official_upstream_rates() {
         "0.075"
     );
     assert_eq!(gemini.rate(TokenType::Output).unwrap().to_string(), "3.75");
+
+    // gpt-5.6-sol on cursor uses the cursor-specific override
+    let cursor_sol = book.lookup("cursor", "gpt-5.6-sol-high", instant).unwrap();
+    assert_eq!(
+        cursor_sol.rate(TokenType::Input).unwrap().to_string(),
+        "2.5"
+    );
+    assert_eq!(
+        cursor_sol.rate(TokenType::CacheRead).unwrap().to_string(),
+        "0.25"
+    );
+    assert_eq!(
+        cursor_sol.rate(TokenType::Output).unwrap().to_string(),
+        "15"
+    );
+
+    // gpt-5.6-sol on openai uses global official pricing
+    let openai_sol = book.lookup("openai", "gpt-5.6-sol-high", instant).unwrap();
+    assert_eq!(openai_sol.rate(TokenType::Input).unwrap().to_string(), "5");
+    assert_eq!(
+        openai_sol.rate(TokenType::CacheRead).unwrap().to_string(),
+        "0.5"
+    );
+    assert_eq!(
+        openai_sol.rate(TokenType::Output).unwrap().to_string(),
+        "30"
+    );
+
+    // claude-sonnet models on cursor and anthropic both use global pricing
+    let cursor_claude = book
+        .lookup("cursor", "claude-4.6-sonnet-medium", instant)
+        .unwrap();
+    assert_eq!(
+        cursor_claude.rate(TokenType::Input).unwrap().to_string(),
+        "3"
+    );
+    assert_eq!(
+        cursor_claude.rate(TokenType::Output).unwrap().to_string(),
+        "15"
+    );
+    assert_eq!(
+        cursor_claude
+            .rate(TokenType::CacheRead)
+            .unwrap()
+            .to_string(),
+        "0.3"
+    );
+    assert_eq!(
+        cursor_claude
+            .rate(TokenType::CacheWrite)
+            .unwrap()
+            .to_string(),
+        "3.75"
+    );
+
+    let anthropic_claude = book
+        .lookup("anthropic", "claude-sonnet-4-6", instant)
+        .unwrap();
+    assert_eq!(
+        anthropic_claude.rate(TokenType::Input).unwrap().to_string(),
+        "3"
+    );
+    assert_eq!(
+        anthropic_claude
+            .rate(TokenType::Output)
+            .unwrap()
+            .to_string(),
+        "15"
+    );
+    assert_eq!(
+        anthropic_claude
+            .rate(TokenType::CacheRead)
+            .unwrap()
+            .to_string(),
+        "0.3"
+    );
+    assert_eq!(
+        anthropic_claude
+            .rate(TokenType::CacheWrite)
+            .unwrap()
+            .to_string(),
+        "3.75"
+    );
 }
 
 #[test]
