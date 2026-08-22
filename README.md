@@ -293,10 +293,10 @@ the vendor client was installed or authenticated in CI.
 | --- | --- | --- | --- |
 | Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent | Real E2E workflow |
 | Codex | `codex` | `codex` User-Agent | Real E2E workflow |
-| oh-my-pi | `oh_my_pi` | `oh-my-pi` User-Agent or Cursor request headers | Simulated protocol + User-Agent regression |
+| oh-my-pi | `oh_my_pi` | `oh-my-pi` User-Agent or Cursor request headers | Real E2E workflow |
 | Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent | Real E2E workflow |
 | OpenCode | `opencode` | `opencode` User-Agent | Real E2E workflow |
-| Pi | `pi` | `pi (` User-Agent | Simulated protocol + User-Agent regression |
+| Pi | `pi` | `pi (` User-Agent | Real E2E workflow |
 | GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent | Simulated protocol + User-Agent regression |
 | Amazon Q | `amazon_q` | `AmazonQ-For-CLI` User-Agent | Simulated protocol + User-Agent regression |
 | Roo Code | `roo_code` | `RooCode/` User-Agent | Simulated protocol + User-Agent regression |

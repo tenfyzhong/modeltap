@@ -130,6 +130,15 @@ PY
 timeout 180s opencode run --model "e2e-completions/$OPENAI_COMPLETIONS_MODEL" \
   --format json --auto "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/opencode.json"
 
+export PI_CODING_AGENT_DIR="$RUNNER_TEMP/pi-agent"
+timeout 180s pi --extension .github/e2e/pi-openai-provider.ts \
+  --provider e2e-openai --model "$OPENAI_COMPLETIONS_MODEL" --no-tools --no-session \
+  --print "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/pi.txt"
+
+timeout 180s omp --extension .github/e2e/pi-openai-provider.ts \
+  --provider e2e-openai --model "$OPENAI_COMPLETIONS_MODEL" --no-tools --no-session \
+  --print "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/oh-my-pi.txt"
+
 export CODEX_HOME="$RUNNER_TEMP/codex-home"
 mkdir -p "$CODEX_HOME"
 export E2E_CODEX_CONFIG="$CODEX_HOME/config.toml"

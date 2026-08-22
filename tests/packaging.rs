@@ -93,7 +93,14 @@ fn agent_e2e_workflow_exercises_each_supported_protocol_and_agent() {
 fn readme_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
     let readme = include_str!("../README.md");
 
-    for agent in ["Claude Code", "Codex", "Gemini CLI", "OpenCode"] {
+    for agent in [
+        "Claude Code",
+        "Codex",
+        "oh-my-pi",
+        "Gemini CLI",
+        "OpenCode",
+        "Pi",
+    ] {
         assert!(
             readme.contains(&format!("| {agent} |")) && readme.contains("Real E2E workflow"),
             "missing real E2E status for {agent}"
