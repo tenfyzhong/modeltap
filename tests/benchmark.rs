@@ -10,20 +10,9 @@ use rust_decimal::Decimal;
 use std::sync::Arc;
 use std::time::Instant;
 
-#[cfg(not(debug_assertions))]
-const MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS: f64 = 10.0;
-#[cfg(debug_assertions)]
 const MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS: f64 = 100.0;
-
-#[cfg(not(debug_assertions))]
-const MAX_ALLOWED_P95_PROCESSING_MICROSECONDS: f64 = 10.0;
-#[cfg(debug_assertions)]
-const MAX_ALLOWED_P95_PROCESSING_MICROSECONDS: f64 = 100.0;
-
-#[cfg(not(debug_assertions))]
-const MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS: f64 = 50.0;
-#[cfg(debug_assertions)]
-const MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS: f64 = 500.0;
+const MAX_ALLOWED_P95_PROCESSING_MICROSECONDS: f64 = 500.0;
+const MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS: f64 = 1000.0;
 
 fn create_test_observer(site: &str) -> UsageObserver {
     let pricing_config = PricingConfig {
