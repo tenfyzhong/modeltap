@@ -213,11 +213,10 @@ pricing:
         input: 0.667832526
         output: 2.003497577
         cache_read: 0.022261084</code></pre>
-  <p>With this configuration, Grok uses the OpenAI-compatible API at <code>api.x.ai</code> and Cursor uses <code>api2.cursor.sh</code>. Rates are per million tokens. Peak windows use the configured IANA timezone, may cross midnight, and must not overlap. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
+  <p>With this configuration, Grok uses the OpenAI-compatible API at <code>api.x.ai</code> and Cursor uses <code>api2.cursor.sh</code>. Rates are per million tokens. Pricing rules can be configured globally (without a <code>site</code>) or for a specific <code>site</code> as an override. Peak windows use the configured IANA timezone, may cross midnight, and must not overlap. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
   <pre><code>rates:
   input: 0.02
   output: 0</code></pre>
-
   <h2 id="sites">Sites and protocol detection</h2>
   <p>A site <code>id</code> is the service identity used in metric labels and <code>pricing.rules</code>; use the actual vendor or service name, such as <code>grok</code>, <code>cursor</code>, or <code>openai</code>. ModelTap detects the usage protocol from each request or response automatically. Site configuration therefore has no <code>provider</code> or <code>provider_type</code> field. It recognizes Cursor Connect/Protobuf, Gemini usage metadata, Anthropic message events, and OpenAI Chat/Responses payloads. A DeepSeek site can report both OpenAI-compatible and Anthropic-compatible traffic without any special setting.</p>
   <p>Every host configured under <code>sites</code> is intercepted with TLS MITM. This makes <code>sites</code> the explicit allowlist of traffic that ModelTap can inspect. Hosts absent from <code>sites</code> are forwarded without MITM and no usage is collected. Remove the former <code>provider</code>, <code>provider_type</code>, and <code>mitm</code> fields when migrating an existing configuration.</p>

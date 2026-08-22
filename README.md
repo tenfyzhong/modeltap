@@ -214,7 +214,7 @@ egress at `127.0.0.1:8118`. DeepSeek overrides the default with
 
 ### Sites and protocol detection
 
-`id` is the site identity used in metric labels and `pricing.rules`; use the
+`id` is the site identity used in metric labels and `pricing.rules` (for site-specific overrides); use the
 actual service/vendor name, such as `grok`, `cursor`, or `openai`. ModelTap
 detects the usage protocol from each request or response automatically, so site
 configuration does not need a `provider` or `provider_type` field. It recognizes
@@ -310,6 +310,9 @@ the vendor client was installed or authenticated in CI.
 | Antigravity | `antigravity` | `antigravity/` User-Agent | Simulated protocol + User-Agent regression |
 | Cursor Agent | `cursor` | Cursor Connect/Protobuf request without oh-my-pi headers | Simulated protocol + User-Agent regression |
 
+Pricing rules can be configured globally (without a `site`) or for a specific `site`.
+When calculating costs, ModelTap first checks for a site-specific rule matching the request's site; if none matches, it falls back to matching global rules. This allows configuring default prices for a model once across all sites while overriding rates for specific sites where pricing differs.
+
 Use a single `rates` block for a model whose prices do not vary by time. These
 rules can coexist with global `peak_windows` used by other models:
 
@@ -317,14 +320,20 @@ rules can coexist with global `peak_windows` used by other models:
 pricing:
   timezone: Asia/Shanghai
   rules:
-    - site: openai
-      model: text-embedding-3-*
+    # Global rule applicable to any site
+    - model: text-embedding-3-*
       currency: USD
       rates:
         input: 0.02
         output: 0
+    # Site-specific override
+    - site: custom_gateway
+      model: text-embedding-3-*
+      currency: USD
+      rates:
+        input: 0.015
+        output: 0
 ```
-
 Each peak window has separate `start` and `end` fields in `HH:MM` format. Windows
 may cross midnight (for example `start: "22:00"`, `end: "02:00"`) but must not
 overlap. The legacy string form (`"09:00-12:00"`) remains accepted for existing

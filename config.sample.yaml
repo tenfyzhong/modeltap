@@ -57,6 +57,9 @@ pricing:
     - start: "14:00"
       end: "18:00"
   rules:
+    # Rules can be defined globally without a `site` or with a specific `site`.
+    # A site-specific rule overrides global rules for that site.
+    #
     # Cursor is a gateway: apply the applicable upstream provider's public API
     # list price, rather than Cursor plan or usage-based pricing.  Rules for
     # Cursor-only models and Cursor "fast" variants are intentionally omitted
