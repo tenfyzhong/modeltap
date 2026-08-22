@@ -31,6 +31,7 @@ fn create_test_observer(site: &str) -> UsageObserver {
                 }),
                 peak: None,
                 off_peak: None,
+                peak_windows: None,
             },
             PriceRuleConfig {
                 site: Some("anthropic".to_owned()),
@@ -44,6 +45,7 @@ fn create_test_observer(site: &str) -> UsageObserver {
                 }),
                 peak: None,
                 off_peak: None,
+                peak_windows: None,
             },
         ],
     };
