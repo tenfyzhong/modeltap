@@ -35,8 +35,8 @@
       "gridPos": { "h": 7, "w": 6, "x": 0, "y": 0 },
       "id": 1,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "targets": [{ "editorMode": "code", "expr": "sum({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"})", "legendFormat": "", "refId": "A" }],
-      "title": "Cumulative requests",
+      "targets": [{ "editorMode": "code", "expr": "sum(rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "", "refId": "A" }],
+      "title": "QPS",
       "type": "stat"
     },
     {
@@ -65,8 +65,8 @@
       "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 },
       "id": 4,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) ({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"})", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
-      "title": "Cumulative requests by model",
+      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
+      "title": "QPS by model",
       "type": "timeseries"
     },
     {
@@ -87,6 +87,26 @@
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) ({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"})", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
       "title": "Cumulative cost by agent_cli, site, model, and type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 15,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
+      "title": "Tokens by agent_cli, site, model, and type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "id": 16,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__rate_interval]))", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
+      "title": "Cost by agent_cli, site, model, and type (USD)",
       "type": "timeseries"
     },
     {
@@ -147,7 +167,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
       "id": 11,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
