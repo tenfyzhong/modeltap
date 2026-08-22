@@ -48,14 +48,12 @@ fn agent_e2e_workflow_exercises_each_supported_protocol_and_agent() {
     let runner = include_str!("../.github/e2e/run-agent-e2e.sh");
 
     assert!(workflow.contains("workflow_dispatch:"));
-    assert!(workflow.contains("OPENAI_COMPLETIONS_API_KEY"));
-    assert!(workflow.contains("OPENAI_RESPONSES_API_KEY"));
-    assert!(workflow.contains("ANTHROPIC_API_KEY"));
-    assert!(workflow.contains("GEMINI_API_KEY"));
-    assert!(workflow.contains("OPENAI_COMPLETIONS_BASE_URL"));
-    assert!(workflow.contains("OPENAI_RESPONSES_BASE_URL"));
-    assert!(workflow.contains("ANTHROPIC_BASE_URL"));
-    assert!(workflow.contains("GEMINI_BASE_URL"));
+    assert!(!workflow.contains("secrets."));
+    assert!(runner.contains("simulated_upstream.py"));
+    assert!(runner.contains("OPENAI_COMPLETIONS_API_KEY=\"modeltap-e2e\""));
+    assert!(runner.contains("OPENAI_RESPONSES_BASE_URL"));
+    assert!(runner.contains("ANTHROPIC_BASE_URL"));
+    assert!(runner.contains("GEMINI_BASE_URL"));
     assert!(runner.contains("opencode"));
     assert!(runner.contains("codex"));
     assert!(runner.contains("claude"));

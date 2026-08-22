@@ -23,12 +23,6 @@ require_environment() {
   done
 }
 
-require_environment \
-  OPENAI_COMPLETIONS_API_KEY OPENAI_COMPLETIONS_BASE_URL OPENAI_COMPLETIONS_MODEL \
-  OPENAI_RESPONSES_API_KEY OPENAI_RESPONSES_BASE_URL OPENAI_RESPONSES_MODEL \
-  ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_MODEL \
-  GEMINI_API_KEY GEMINI_BASE_URL GEMINI_MODEL
-
 ./target/debug/modeltap ca-init \
   --cert "$CA_CERT" \
   --key "$CERT_DIR/modeltap-ca-key.pem"
@@ -58,6 +52,18 @@ export HTTP_PROXY="http://127.0.0.1:2080"
 export HTTPS_PROXY="$HTTP_PROXY"
 export NO_PROXY="127.0.0.1,localhost"
 export no_proxy="$NO_PROXY"
+export OPENAI_COMPLETIONS_API_KEY="modeltap-e2e"
+export OPENAI_COMPLETIONS_BASE_URL="https://$SIMULATED_HOST:$SIMULATED_PORT/v1"
+export OPENAI_COMPLETIONS_MODEL="simulated-model"
+export OPENAI_RESPONSES_API_KEY="$OPENAI_COMPLETIONS_API_KEY"
+export OPENAI_RESPONSES_BASE_URL="$OPENAI_COMPLETIONS_BASE_URL"
+export OPENAI_RESPONSES_MODEL="$OPENAI_COMPLETIONS_MODEL"
+export ANTHROPIC_API_KEY="$OPENAI_COMPLETIONS_API_KEY"
+export ANTHROPIC_BASE_URL="https://$SIMULATED_HOST:$SIMULATED_PORT"
+export ANTHROPIC_MODEL="$OPENAI_COMPLETIONS_MODEL"
+export GEMINI_API_KEY="$OPENAI_COMPLETIONS_API_KEY"
+export GEMINI_BASE_URL="https://$SIMULATED_HOST:$SIMULATED_PORT"
+export GEMINI_MODEL="$OPENAI_COMPLETIONS_MODEL"
 
 export E2E_CONFIG_PATH="$CONFIG_PATH"
 python3 - <<'PY'
@@ -65,12 +71,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
-base_urls = [
-    os.environ["OPENAI_COMPLETIONS_BASE_URL"],
-    os.environ["OPENAI_RESPONSES_BASE_URL"],
-    os.environ["ANTHROPIC_BASE_URL"],
-    os.environ["GEMINI_BASE_URL"],
-]
+base_urls = [os.environ["OPENAI_COMPLETIONS_BASE_URL"]]
 hosts = []
 for base_url in base_urls:
     host = urlparse(base_url).hostname

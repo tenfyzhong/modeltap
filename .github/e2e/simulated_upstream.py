@@ -30,8 +30,17 @@ class Handler(BaseHTTPRequestHandler):
         self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if self.headers.get("Content-Type", "").startswith("application/connect+proto"):
             body, content_type = cursor_response(), "application/connect+proto"
+        elif self.path.endswith("/responses"):
+            body = b"data: {\"type\":\"response.completed\",\"response\":{\"model\":\"simulated-model\",\"usage\":{\"input_tokens\":3,\"output_tokens\":5}}}\n\ndata: [DONE]\n\n"
+            content_type = "text/event-stream"
+        elif self.path.endswith("/messages"):
+            body = b"event: message_start\ndata: {\"message\":{\"model\":\"simulated-model\",\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\nevent: message_delta\ndata: {\"usage\":{\"input_tokens\":3,\"output_tokens\":5}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            content_type = "text/event-stream"
+        elif "generateContent" in self.path:
+            body = json.dumps({"candidates": [{"content": {"parts": [{"text": "E2E_OK"}]}}], "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 5}}).encode()
+            content_type = "application/json"
         else:
-            body, content_type = json.dumps({"model": "simulated-model", "usage": {"prompt_tokens": 3, "completion_tokens": 5}}).encode(), "application/json"
+            body, content_type = json.dumps({"model": "simulated-model", "choices": [{"message": {"content": "E2E_OK"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 3, "completion_tokens": 5}}).encode(), "application/json"
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))

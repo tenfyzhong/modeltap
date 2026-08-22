@@ -270,8 +270,10 @@ The workflow additionally routes representative requests for every documented
 OAuth-only, and IDE-only agents covered by the same metric assertion without
 claiming that their vendor client ran in CI.
 
-Configure these repository secrets. Every provider has its own base URL so the
-workflow works with both first-party APIs and compatible gateways:
+The workflow uses a local protocol-compatible upstream and a generated test CA;
+it requires no model credentials, external base URL, or billable API calls.
+The following configuration names are retained as examples for running the same
+clients against a real provider outside CI:
 
 | Protocol and client | Secrets | Repository variable |
 | --- | --- | --- |
