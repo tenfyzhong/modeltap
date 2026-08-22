@@ -250,7 +250,65 @@ Pricing uses decimal arithmetic and daily peak/off-peak windows in the configure
 DeepSeek accepts both its native OpenAI-compatible responses and the Anthropic
 compatible streaming responses used by Claude Code. Usage metrics include an
 `agent_cli` attribute inferred from client headers (`claude_code`, `codex`,
-`gemini_cli`, `oh_my_pi`, `opencode`, or `unknown`).
+`gemini_cli`, `oh_my_pi`, `opencode`, `pi`, `github_copilot`, `amazon_q`,
+`roo_code`, `qwen_code`, `factory_droid`, `crush`, `kiro`, `qoder`,
+`antigravity`, `cursor`, or `unknown`). ModelTap ships stable built-in rules
+rather than exporting raw User-Agent values, which would create high-cardinality
+metrics. Tools without a distinctive request header, including Aider, Goose, and
+Continue, remain `unknown` rather than risking an incorrect classification.
+
+### Agent CLI E2E workflow
+
+[`Agent CLI E2E`](.github/workflows/agent-e2e.yml) is an automated GitHub Actions
+workflow running on pull requests and main branch pushes. It installs the agent
+CLIs, routes each request through ModelTap, and checks the exported Prometheus
+metrics for a positive request and token total with the expected `agent_cli`
+label.
+
+The workflow additionally routes representative requests for every documented
+`agent_cli` value through a local HTTPS upstream. This keeps proprietary,
+OAuth-only, and IDE-only agents covered by the same metric assertion without
+claiming that their vendor client ran in CI.
+
+The workflow uses a local protocol-compatible upstream and a generated test CA;
+it requires no model credentials, external base URL, or billable API calls.
+The following configuration names are retained as examples for running the same
+clients against a real provider outside CI:
+
+| Protocol and client | Secrets | Repository variable |
+| --- | --- | --- |
+| OpenAI Chat Completions via OpenCode | `OPENAI_COMPLETIONS_API_KEY`, `OPENAI_COMPLETIONS_BASE_URL` | `OPENAI_COMPLETIONS_MODEL` |
+| OpenAI Responses via Codex | `OPENAI_RESPONSES_API_KEY`, `OPENAI_RESPONSES_BASE_URL` | `OPENAI_RESPONSES_MODEL` |
+| Anthropic Messages via Claude Code | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL` |
+| Gemini API via Gemini CLI | `GEMINI_API_KEY`, `GEMINI_BASE_URL` | `GEMINI_MODEL` |
+
+Base URLs must include any API prefix required by the provider, such as `/v1`.
+The workflow derives its TLS interception hosts from these URLs at runtime, so
+do not use a URL that redirects to another API hostname.
+
+The table distinguishes real E2E workflow coverage from simulated protocol and
+User-Agent regression coverage. A simulated check validates ModelTap's request
+classification and supported response protocol parsing, but does not claim that
+the vendor client was installed or authenticated in CI.
+
+| Agent | `agent_cli` | Detection | Verification |
+| --- | --- | --- | --- |
+| Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent, `x-claude-code-session-id` header | Real E2E workflow |
+| Codex | `codex` | `codex` User-Agent, `originator: codex_exec` header | Real E2E workflow |
+| oh-my-pi | `oh_my_pi` | `oh-my-pi`/`omp` User-Agent, `x-oh-my-pi`/`x-omp`, `x-ghost-mode`, or Cursor CLI header | Real E2E workflow |
+| Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent, `x-gemini-api-privileged-user-id` header | Real E2E workflow |
+| OpenCode | `opencode` | `opencode` User-Agent, `originator: opencode` header | Real E2E workflow |
+| Pi | `pi` | `pi` User-Agent, `x-opencode-client: pi`, `X-OpenRouter-Title: pi`, `X-BILLING-INVOKE-ORIGIN: Pi` | Real E2E workflow |
+| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent, `x-interaction-type` header | Real E2E workflow |
+| Amazon Q | `amazon_q` | `AmazonQ-For-CLI` User-Agent | Simulated protocol + User-Agent regression |
+| Roo Code | `roo_code` | `RooCode/` User-Agent | Simulated protocol + User-Agent regression |
+| Qwen Code | `qwen_code` | `QwenCode/` User-Agent | Real E2E workflow |
+| Factory Droid | `factory_droid` | `factory-cli/` User-Agent | Simulated protocol + User-Agent regression |
+| Crush | `crush` | `Charm-Crush/` User-Agent | Simulated protocol + User-Agent regression |
+| Kiro | `kiro` | `kiro-ide/` User-Agent | Simulated protocol + User-Agent regression |
+| Qoder | `qoder` | `Qoder-Cli` User-Agent | Simulated protocol + User-Agent regression |
+| Antigravity | `antigravity` | `antigravity/` User-Agent | Simulated protocol + User-Agent regression |
+| Cursor Agent | `cursor` | Cursor Connect/Protobuf request without oh-my-pi headers | Simulated protocol + User-Agent regression |
 
 Use a single `rates` block for a model whose prices do not vary by time. These
 rules can coexist with global `peak_windows` used by other models:

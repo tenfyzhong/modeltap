@@ -41,3 +41,91 @@ fn release_workflow_normalizes_homebrew_bottle_asset_names() {
     assert!(workflow.contains("modeltap--*.bottle.tar.gz"));
     assert!(workflow.contains("${bottle/modeltap--/modeltap-}"));
 }
+
+#[test]
+fn agent_e2e_workflow_exercises_each_supported_protocol_and_agent() {
+    let workflow = include_str!("../.github/workflows/agent-e2e.yml");
+    let runner = include_str!("../.github/e2e/run-agent-e2e.sh");
+
+    assert!(workflow.contains("workflow_dispatch:"));
+    assert!(workflow.contains("pull_request:"));
+    assert!(workflow.contains("push:"));
+    assert!(workflow.contains("- main"));
+    assert!(!workflow.contains("secrets."));
+    assert!(runner.contains("simulated_upstream.py"));
+    assert!(runner.contains("OPENAI_COMPLETIONS_API_KEY=\"modeltap-e2e\""));
+    assert!(runner.contains("OPENAI_RESPONSES_BASE_URL"));
+    assert!(runner.contains("ANTHROPIC_BASE_URL"));
+    assert!(runner.contains("GEMINI_BASE_URL"));
+    assert!(runner.contains("opencode"));
+    assert!(runner.contains("codex"));
+    assert!(runner.contains("claude"));
+    assert!(runner.contains("gemini"));
+    assert!(runner.contains("copilot"));
+    assert!(runner.contains("qwen"));
+    assert!(runner.contains("simulate_agents.py"));
+    assert!(runner.contains("assert_metrics.py"));
+
+    let metrics_assertion = include_str!("../.github/e2e/assert_metrics.py");
+    for agent_cli in [
+        "claude_code",
+        "codex",
+        "oh_my_pi",
+        "gemini_cli",
+        "opencode",
+        "pi",
+        "github_copilot",
+        "amazon_q",
+        "roo_code",
+        "qwen_code",
+        "factory_droid",
+        "crush",
+        "kiro",
+        "qoder",
+        "antigravity",
+        "cursor",
+    ] {
+        assert!(
+            metrics_assertion.contains(&format!("\"{agent_cli}\"")),
+            "missing expected agent_cli {agent_cli}"
+        );
+    }
+}
+
+#[test]
+fn readme_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
+    let readme = include_str!("../README.md");
+
+    for agent in [
+        "Claude Code",
+        "Codex",
+        "oh-my-pi",
+        "Gemini CLI",
+        "OpenCode",
+        "Pi",
+        "GitHub Copilot CLI",
+        "Qwen Code",
+    ] {
+        assert!(
+            readme.contains(&format!("| {agent} |")) && readme.contains("Real E2E workflow"),
+            "missing real E2E status for {agent}"
+        );
+    }
+
+    for agent in [
+        "Amazon Q",
+        "Roo Code",
+        "Factory Droid",
+        "Crush",
+        "Kiro",
+        "Qoder",
+        "Antigravity",
+        "Cursor Agent",
+    ] {
+        assert!(
+            readme.contains(&format!("| {agent} |"))
+                && readme.contains("Simulated protocol + User-Agent regression"),
+            "missing simulated status for {agent}"
+        );
+    }
+}

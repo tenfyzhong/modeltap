@@ -1,0 +1,60 @@
+name: Agent CLI E2E
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agent-cli-e2e:
+    name: Agent CLI telemetry
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.85
+        uses: dtolnay/rust-toolchain@1.85
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install agent CLIs
+        run: npm install --global @anthropic-ai/claude-code @github/copilot @google/gemini-cli @mariozechner/pi-coding-agent @openai/codex @qwen-code/qwen-code oh-my-pi opencode-ai
+
+      - name: Build ModelTap
+        run: cargo build --locked
+
+      - name: Start OpenTelemetry Collector
+        run: |
+          docker run --detach --rm --name modeltap-e2e-otel \
+            --publish 127.0.0.1:4318:4318 \
+            --publish 127.0.0.1:9464:9464 \
+            --volume "$GITHUB_WORKSPACE/.github/e2e/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+            otel/opentelemetry-collector-contrib:0.118.0
+
+      - name: Run agent CLI checks
+        run: .github/e2e/run-agent-e2e.sh
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-cli-e2e-diagnostics
+          path: |
+            .github/e2e/artifacts
+          if-no-files-found: ignore
