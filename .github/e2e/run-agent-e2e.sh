@@ -131,17 +131,17 @@ from pathlib import Path
 Path(os.environ["E2E_OPENCODE_CONFIG"]).write_text(json.dumps({
     "$schema": "https://opencode.ai/config.json",
     "provider": {
-        "e2e-completions": {
-            "name": "E2E OpenAI Completions",
-            "env": ["OPENAI_COMPLETIONS_API_KEY"],
-            "npm": "@opencode-ai/ai/providers/openai-compatible",
-            "options": {"baseURL": os.environ["OPENAI_COMPLETIONS_BASE_URL"]},
+        "openai": {
+            "options": {
+                "baseURL": os.environ["OPENAI_COMPLETIONS_BASE_URL"],
+                "apiKey": os.environ["OPENAI_COMPLETIONS_API_KEY"],
+            },
             "models": {os.environ["OPENAI_COMPLETIONS_MODEL"]: {"name": "E2E model"}},
         },
     },
 }))
 PY
-timeout 180s opencode run --print-logs --model "e2e-completions/$OPENAI_COMPLETIONS_MODEL" \
+timeout 180s opencode run --print-logs --model "openai/$OPENAI_COMPLETIONS_MODEL" \
   --format json --auto "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/opencode.json" 2>&1
 
 export PI_CODING_AGENT_DIR="$RUNNER_TEMP/pi-agent"
