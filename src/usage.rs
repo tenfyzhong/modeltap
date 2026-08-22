@@ -214,6 +214,12 @@ pub struct CursorUsageParser {
     request_reported: bool,
 }
 
+impl Default for CursorUsageParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CursorUsageParser {
     pub fn new() -> Self {
         Self {
@@ -233,7 +239,7 @@ impl CursorUsageParser {
         let mut consumed = 0;
         while let Some(message) = connect_message(&buffer[consumed..]) {
             consumed += message.len() + 5;
-            if let Some(model) = cursor_model_from_request(&message) {
+            if let Some(model) = cursor_model_from_request(message) {
                 self.model = Some(model.clone());
                 compact_buffer(&mut buffer, consumed);
                 self.request_buffer = buffer;
@@ -254,7 +260,7 @@ impl CursorUsageParser {
         let mut consumed = 0;
         while let Some(message) = connect_message(&buffer[consumed..]) {
             consumed += message.len() + 5;
-            let Some(interaction) = protobuf_length_field(&message, 1) else {
+            let Some(interaction) = protobuf_length_field(message, 1) else {
                 continue;
             };
             if let Some(token_delta) = protobuf_length_field(interaction, 8)
@@ -302,6 +308,12 @@ pub struct AutoStreamUsageParser {
 
 const BUFFER_COMPACTION_THRESHOLD: usize = 64 * 1024;
 const MAX_SSE_EVENT_BYTES: usize = 16 * 1024 * 1024;
+
+impl Default for AutoStreamUsageParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl AutoStreamUsageParser {
     pub fn new() -> Self {
@@ -496,6 +508,12 @@ pub struct WebSocketUsageParser {
     fragments: Vec<u8>,
     sse: AutoStreamUsageParser,
     permessage_deflate: Option<PerMessageDeflate>,
+}
+
+impl Default for WebSocketUsageParser {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WebSocketUsageParser {
@@ -807,7 +825,7 @@ fn cursor_model_from_request(message: &[u8]) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn protobuf_length_field<'a>(message: &'a [u8], wanted_field: u64) -> Option<&'a [u8]> {
+fn protobuf_length_field(message: &[u8], wanted_field: u64) -> Option<&[u8]> {
     let mut cursor = 0;
     while cursor < message.len() {
         let key = protobuf_varint(message, &mut cursor)?;
