@@ -75,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
                 b'data: {"type":"message_stop"}\n\n'
             )
             content_type = "text/event-stream"
-        elif "generateContent" in self.path:
+        elif "generatecontent" in self.path.lower():
             resp_data = {
                 "candidates": [
                     {
@@ -92,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
                     "totalTokenCount": 8
                 }
             }
-            if "alt=sse" in self.path or "streamGenerateContent" in self.path:
+            if "alt=sse" in self.path or "streamgeneratecontent" in self.path.lower():
                 body = b"data: " + json.dumps(resp_data).encode() + b"\r\n\r\n"
                 content_type = "text/event-stream; charset=utf-8"
             else:
@@ -111,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
                 body, content_type = json.dumps({"model": "simulated-model", "choices": [{"message": {"content": "E2E_OK"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 3, "completion_tokens": 5}}).encode(), "application/json"
         self.send_response(200)
         self.send_header("Content-Type", content_type)
-        if not ("generateContent" in self.path and ("alt=sse" in self.path or "streamGenerateContent" in self.path)):
+        if not ("generatecontent" in self.path.lower() and ("alt=sse" in self.path or "streamgeneratecontent" in self.path.lower())):
             self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.end_headers()

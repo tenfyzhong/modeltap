@@ -208,16 +208,6 @@ cat > "$HOME/.gemini/settings.json" << 'EOF'
   }
 }
 EOF
-python3 -c "
-import glob
-for p in glob.glob('/opt/hostedtoolcache/node/**/chunk-LZUWGCRJ.js', recursive=True) + glob.glob('/home/runner/**/chunk-LZUWGCRJ.js', recursive=True):
-    with open(p) as f:
-        content = f.read()
-    if 'Incomplete JSON segment at the end' in content:
-        content = content.replace('throw new Error(\"Incomplete JSON segment at the end\");', 'throw new Error(\"Incomplete JSON segment at the end: \" + JSON.stringify(buffer));')
-        with open(p, 'w') as f:
-            f.write(content)
-" || true
 timeout 180s gemini --yolo --model "$GEMINI_MODEL" \
   --prompt "Reply exactly E2E_OK." </dev/null >"$ARTIFACTS_DIR/gemini.txt" || {
     cp /tmp/gemini-client-error-*.json "$ARTIFACTS_DIR/" 2>/dev/null || true
