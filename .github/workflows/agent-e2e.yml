@@ -34,7 +34,9 @@ jobs:
           bun-version: latest
 
       - name: Install agent CLIs
-        run: npm install --global @anthropic-ai/claude-code @github/copilot @google/gemini-cli @mariozechner/pi-coding-agent @openai/codex @qwen-code/qwen-code oh-my-pi opencode-ai
+        run: |
+          npm install --global @anthropic-ai/claude-code @github/copilot @google/gemini-cli @mariozechner/pi-coding-agent @openai/codex @qwen-code/qwen-code opencode-ai
+          bun install --global oh-my-pi
 
       - name: Build ModelTap
         run: cargo build --locked
