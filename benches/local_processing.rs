@@ -17,7 +17,20 @@ use std::time::Instant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
+#[cfg(not(debug_assertions))]
+const MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS: f64 = 10.0;
+#[cfg(debug_assertions)]
 const MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS: f64 = 100.0;
+
+#[cfg(not(debug_assertions))]
+const MAX_ALLOWED_P95_PROCESSING_MICROSECONDS: f64 = 10.0;
+#[cfg(debug_assertions)]
+const MAX_ALLOWED_P95_PROCESSING_MICROSECONDS: f64 = 100.0;
+
+#[cfg(not(debug_assertions))]
+const MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS: f64 = 50.0;
+#[cfg(debug_assertions)]
+const MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS: f64 = 500.0;
 const WARMUP_ITERATIONS: usize = 100;
 const BENCHMARK_ITERATIONS: usize = 2000;
 
@@ -42,7 +55,9 @@ impl BenchmarkResult {
         let p95_idx = ((chunks_count as f64) * 0.95).min((chunks_count - 1) as f64) as usize;
         let p95_duration_us = durations[p95_idx];
         let max_duration_us = durations[chunks_count - 1];
-        let passed = avg_duration_us < MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS;
+        let passed = avg_duration_us <= MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS
+            && p95_duration_us <= MAX_ALLOWED_P95_PROCESSING_MICROSECONDS
+            && max_duration_us <= MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS;
 
         Self {
             name,
@@ -600,7 +615,9 @@ pub async fn run_all_benchmarks() -> (Vec<BenchmarkResult>, BenchmarkResult) {
         .iter()
         .map(|r| r.p95_duration_us)
         .fold(0.0_f64, f64::max);
-    let passed = avg_duration_us < MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS
+    let passed = avg_duration_us <= MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS
+        && p95_duration_us <= MAX_ALLOWED_P95_PROCESSING_MICROSECONDS
+        && max_duration_us <= MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS
         && results.iter().all(|r| r.passed);
 
     let aggregate = BenchmarkResult {
@@ -620,7 +637,12 @@ pub fn print_benchmark_table(results: &[BenchmarkResult], aggregate: &BenchmarkR
     println!();
     println!("{}", "=".repeat(86));
     println!(" ModelTap Local Processing Duration Benchmark");
-    println!(" Threshold: Average ModelTap local processing duration < 100.00 µs");
+    println!(
+        " Thresholds: Avg <= {:.2} µs, P95 <= {:.2} µs, Max <= {:.2} µs",
+        MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
+        MAX_ALLOWED_P95_PROCESSING_MICROSECONDS,
+        MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS
+    );
     println!(" Metric reference: Average ModelTap chunk processing duration by site");
     println!("{}", "=".repeat(86));
     println!(
@@ -657,13 +679,23 @@ pub fn print_benchmark_table(results: &[BenchmarkResult], aggregate: &BenchmarkR
 
     if aggregate.passed {
         println!(
-            "✓ Benchmark PASSED: Average ModelTap local chunk processing duration is {:.2} µs (< 100.00 µs).",
-            aggregate.avg_duration_us
+            "✓ Benchmark PASSED: Avg {:.2} µs (<= {:.2} µs), P95 {:.2} µs (<= {:.2} µs), Max {:.2} µs (<= {:.2} µs).",
+            aggregate.avg_duration_us,
+            MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
+            aggregate.p95_duration_us,
+            MAX_ALLOWED_P95_PROCESSING_MICROSECONDS,
+            aggregate.max_duration_us,
+            MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS
         );
     } else {
         eprintln!(
-            "✗ Benchmark FAILED: Average ModelTap local chunk processing duration is {:.2} µs (must be < 100.00 µs).",
-            aggregate.avg_duration_us
+            "✗ Benchmark FAILED: Avg {:.2} µs (<= {:.2} µs), P95 {:.2} µs (<= {:.2} µs), Max {:.2} µs (<= {:.2} µs).",
+            aggregate.avg_duration_us,
+            MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
+            aggregate.p95_duration_us,
+            MAX_ALLOWED_P95_PROCESSING_MICROSECONDS,
+            aggregate.max_duration_us,
+            MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS
         );
     }
     println!();
@@ -676,7 +708,12 @@ async fn main() {
 
     assert!(
         aggregate.passed,
-        "Benchmark threshold violated: average local processing duration ({:.2} µs) must be < {:.2} µs",
-        aggregate.avg_duration_us, MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS
+        "Benchmark threshold violated: Avg ({:.2} µs <= {:.2} µs), P95 ({:.2} µs <= {:.2} µs), Max ({:.2} µs <= {:.2} µs)",
+        aggregate.avg_duration_us,
+        MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
+        aggregate.p95_duration_us,
+        MAX_ALLOWED_P95_PROCESSING_MICROSECONDS,
+        aggregate.max_duration_us,
+        MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS
     );
 }

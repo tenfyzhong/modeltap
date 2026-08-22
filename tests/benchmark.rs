@@ -10,7 +10,20 @@ use rust_decimal::Decimal;
 use std::sync::Arc;
 use std::time::Instant;
 
+#[cfg(not(debug_assertions))]
+const MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS: f64 = 10.0;
+#[cfg(debug_assertions)]
 const MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS: f64 = 100.0;
+
+#[cfg(not(debug_assertions))]
+const MAX_ALLOWED_P95_PROCESSING_MICROSECONDS: f64 = 10.0;
+#[cfg(debug_assertions)]
+const MAX_ALLOWED_P95_PROCESSING_MICROSECONDS: f64 = 100.0;
+
+#[cfg(not(debug_assertions))]
+const MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS: f64 = 50.0;
+#[cfg(debug_assertions)]
+const MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS: f64 = 500.0;
 
 fn create_test_observer(site: &str) -> UsageObserver {
     let pricing_config = PricingConfig {
@@ -54,8 +67,32 @@ fn create_test_observer(site: &str) -> UsageObserver {
     UsageObserver::new(telemetry, prices, site).with_agent_cli("test_client")
 }
 
+fn assert_duration_thresholds(name: &str, mut durations: Vec<f64>) {
+    assert!(!durations.is_empty(), "Durations must not be empty");
+    durations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let chunks_count = durations.len();
+    let total_duration_us: f64 = durations.iter().sum();
+    let avg_duration_us = total_duration_us / chunks_count as f64;
+    let p95_idx = ((chunks_count as f64) * 0.95).min((chunks_count - 1) as f64) as usize;
+    let p95_duration_us = durations[p95_idx];
+    let max_duration_us = durations[chunks_count - 1];
+
+    assert!(
+        avg_duration_us <= MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
+        "[{name}] Average processing duration ({avg_duration_us:.2} µs) must not exceed {MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS:.2} µs"
+    );
+    assert!(
+        p95_duration_us <= MAX_ALLOWED_P95_PROCESSING_MICROSECONDS,
+        "[{name}] P95 processing duration ({p95_duration_us:.2} µs) must not exceed {MAX_ALLOWED_P95_PROCESSING_MICROSECONDS:.2} µs"
+    );
+    assert!(
+        max_duration_us <= MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS,
+        "[{name}] Max processing duration ({max_duration_us:.2} µs) must not exceed {MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS:.2} µs"
+    );
+}
+
 #[test]
-fn openai_sse_chunk_processing_duration_is_under_100_microseconds() {
+fn openai_sse_chunk_processing_duration_meets_performance_limits() {
     let observer = create_test_observer("openai");
     let chunks: [&[u8]; 4] = [
         b"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
@@ -65,9 +102,18 @@ fn openai_sse_chunk_processing_duration_is_under_100_microseconds() {
     ];
 
     let iterations = 1000;
-    let mut total_duration_us = 0.0;
-    let mut total_chunks = 0;
 
+    // Warmup
+    for _ in 0..100 {
+        let mut parser = AutoStreamUsageParser::new();
+        for &chunk in &chunks {
+            if let Some((_protocol, usage)) = parser.push(chunk) {
+                observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+            }
+        }
+    }
+
+    let mut durations = Vec::with_capacity(iterations * chunks.len());
     for _ in 0..iterations {
         let mut parser = AutoStreamUsageParser::new();
         for &chunk in &chunks {
@@ -77,20 +123,15 @@ fn openai_sse_chunk_processing_duration_is_under_100_microseconds() {
             }
             let duration_us = local_processing_microseconds(started);
             observer.record_local_processing_duration(duration_us);
-            total_duration_us += duration_us;
-            total_chunks += 1;
+            durations.push(duration_us);
         }
     }
 
-    let avg_duration_us = total_duration_us / total_chunks as f64;
-    assert!(
-        avg_duration_us < MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
-        "Average ModelTap local processing duration ({avg_duration_us:.2} µs) exceeded 100 µs limit"
-    );
+    assert_duration_thresholds("OpenAI SSE", durations);
 }
 
 #[test]
-fn anthropic_sse_chunk_processing_duration_is_under_100_microseconds() {
+fn anthropic_sse_chunk_processing_duration_meets_performance_limits() {
     let observer = create_test_observer("anthropic");
     let chunks: [&[u8]; 6] = [
         b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-3-5-sonnet-20241022\",\"usage\":{\"input_tokens\":150,\"output_tokens\":1}}}\n\n",
@@ -102,9 +143,18 @@ fn anthropic_sse_chunk_processing_duration_is_under_100_microseconds() {
     ];
 
     let iterations = 1000;
-    let mut total_duration_us = 0.0;
-    let mut total_chunks = 0;
 
+    // Warmup
+    for _ in 0..100 {
+        let mut parser = AutoStreamUsageParser::new();
+        for &chunk in &chunks {
+            if let Some((_protocol, usage)) = parser.push(chunk) {
+                observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+            }
+        }
+    }
+
+    let mut durations = Vec::with_capacity(iterations * chunks.len());
     for _ in 0..iterations {
         let mut parser = AutoStreamUsageParser::new();
         for &chunk in &chunks {
@@ -114,20 +164,15 @@ fn anthropic_sse_chunk_processing_duration_is_under_100_microseconds() {
             }
             let duration_us = local_processing_microseconds(started);
             observer.record_local_processing_duration(duration_us);
-            total_duration_us += duration_us;
-            total_chunks += 1;
+            durations.push(duration_us);
         }
     }
 
-    let avg_duration_us = total_duration_us / total_chunks as f64;
-    assert!(
-        avg_duration_us < MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
-        "Average Anthropic chunk processing duration ({avg_duration_us:.2} µs) exceeded 100 µs limit"
-    );
+    assert_duration_thresholds("Anthropic SSE", durations);
 }
 
 #[test]
-fn direct_json_response_processing_duration_is_under_100_microseconds() {
+fn direct_json_response_processing_duration_meets_performance_limits() {
     let observer = create_test_observer("openai");
     let payloads: [(&str, &[u8]); 2] = [
         (
@@ -141,9 +186,20 @@ fn direct_json_response_processing_duration_is_under_100_microseconds() {
     ];
 
     let iterations = 1000;
-    let mut total_duration_us = 0.0;
-    let mut total_chunks = 0;
 
+    // Warmup
+    for _ in 0..100 {
+        for &(content_type, payload) in &payloads {
+            if is_json_content_type(content_type) && should_parse_direct_json_usage(false, payload)
+            {
+                if let Some((_protocol, usage)) = auto_parse_json(payload) {
+                    observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                }
+            }
+        }
+    }
+
+    let mut durations = Vec::with_capacity(iterations * payloads.len());
     for _ in 0..iterations {
         for &(content_type, payload) in &payloads {
             let started = Instant::now();
@@ -159,20 +215,15 @@ fn direct_json_response_processing_duration_is_under_100_microseconds() {
             let _ = direct_parse_attempted;
             let duration_us = local_processing_microseconds(started);
             observer.record_local_processing_duration(duration_us);
-            total_duration_us += duration_us;
-            total_chunks += 1;
+            durations.push(duration_us);
         }
     }
 
-    let avg_duration_us = total_duration_us / total_chunks as f64;
-    assert!(
-        avg_duration_us < MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
-        "Average direct JSON processing duration ({avg_duration_us:.2} µs) exceeded 100 µs limit"
-    );
+    assert_duration_thresholds("Direct JSON", durations);
 }
 
 #[test]
-fn websocket_frame_processing_duration_is_under_100_microseconds() {
+fn websocket_frame_processing_duration_meets_performance_limits() {
     let observer = create_test_observer("openai");
     let payload = br#"{"type":"response.completed","response":{"model":"gpt-4o","usage":{"input_tokens":100,"output_tokens":20,"input_tokens_details":{"cached_tokens":30}}}}"#;
 
@@ -180,9 +231,16 @@ fn websocket_frame_processing_duration_is_under_100_microseconds() {
     frame.extend_from_slice(payload);
 
     let iterations = 1000;
-    let mut total_duration_us = 0.0;
-    let mut total_chunks = 0;
 
+    // Warmup
+    for _ in 0..100 {
+        let mut parser = WebSocketUsageParser::new();
+        if let Some((_protocol, usage)) = parser.push(&frame) {
+            observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+        }
+    }
+
+    let mut durations = Vec::with_capacity(iterations);
     for _ in 0..iterations {
         let mut parser = WebSocketUsageParser::new();
         let started = Instant::now();
@@ -191,13 +249,8 @@ fn websocket_frame_processing_duration_is_under_100_microseconds() {
         }
         let duration_us = local_processing_microseconds(started);
         observer.record_local_processing_duration(duration_us);
-        total_duration_us += duration_us;
-        total_chunks += 1;
+        durations.push(duration_us);
     }
 
-    let avg_duration_us = total_duration_us / total_chunks as f64;
-    assert!(
-        avg_duration_us < MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS,
-        "Average WebSocket frame processing duration ({avg_duration_us:.2} µs) exceeded 100 µs limit"
-    );
+    assert_duration_thresholds("WebSocket frame", durations);
 }
