@@ -24,3 +24,6 @@ jobs:
 
       - name: Run tests
         run: cargo test --all-targets --locked
+
+      - name: Run benchmarks
+        run: cargo bench --locked
