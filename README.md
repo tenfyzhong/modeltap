@@ -279,24 +279,29 @@ Base URLs must include any API prefix required by the provider, such as `/v1`.
 The workflow derives its TLS interception hosts from these URLs at runtime, so
 do not use a URL that redirects to another API hostname.
 
-| Agent | `agent_cli` | Detection | Tested |
+The table distinguishes real E2E workflow coverage from simulated protocol and
+User-Agent regression coverage. A simulated check validates ModelTap's request
+classification and supported response protocol parsing, but does not claim that
+the vendor client was installed or authenticated in CI.
+
+| Agent | `agent_cli` | Detection | Verification |
 | --- | --- | --- | --- |
-| Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent | ✓ |
-| Codex | `codex` | `codex` User-Agent | ✓ |
-| oh-my-pi | `oh_my_pi` | `oh-my-pi` User-Agent or Cursor request headers | ✓ |
-| Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent | Pending |
-| OpenCode | `opencode` | `opencode` User-Agent | Pending |
-| Pi | `pi` | `pi (` User-Agent | Pending |
-| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent | Pending |
-| Amazon Q | `amazon_q` | `AmazonQ-For-CLI` User-Agent | Pending |
-| Roo Code | `roo_code` | `RooCode/` User-Agent | Pending |
-| Qwen Code | `qwen_code` | `QwenCode/` User-Agent | Pending |
-| Factory Droid | `factory_droid` | `factory-cli/` User-Agent | Pending |
-| Crush | `crush` | `Charm-Crush/` User-Agent | Pending |
-| Kiro | `kiro` | `kiro-ide/` User-Agent | Pending |
-| Qoder | `qoder` | `Qoder-Cli` User-Agent | Pending |
-| Antigravity | `antigravity` | `antigravity/` User-Agent | Pending |
-| Cursor Agent | `cursor` | Cursor Connect/Protobuf request | Pending |
+| Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent | Real E2E workflow |
+| Codex | `codex` | `codex` User-Agent | Real E2E workflow |
+| oh-my-pi | `oh_my_pi` | `oh-my-pi` User-Agent or Cursor request headers | Simulated protocol + User-Agent regression |
+| Gemini CLI | `gemini_cli` | `GeminiCLI` User-Agent | Real E2E workflow |
+| OpenCode | `opencode` | `opencode` User-Agent | Real E2E workflow |
+| Pi | `pi` | `pi (` User-Agent | Simulated protocol + User-Agent regression |
+| GitHub Copilot CLI | `github_copilot` | `copilot/` User-Agent | Simulated protocol + User-Agent regression |
+| Amazon Q | `amazon_q` | `AmazonQ-For-CLI` User-Agent | Simulated protocol + User-Agent regression |
+| Roo Code | `roo_code` | `RooCode/` User-Agent | Simulated protocol + User-Agent regression |
+| Qwen Code | `qwen_code` | `QwenCode/` User-Agent | Simulated protocol + User-Agent regression |
+| Factory Droid | `factory_droid` | `factory-cli/` User-Agent | Simulated protocol + User-Agent regression |
+| Crush | `crush` | `Charm-Crush/` User-Agent | Simulated protocol + User-Agent regression |
+| Kiro | `kiro` | `kiro-ide/` User-Agent | Simulated protocol + User-Agent regression |
+| Qoder | `qoder` | `Qoder-Cli` User-Agent | Simulated protocol + User-Agent regression |
+| Antigravity | `antigravity` | `antigravity/` User-Agent | Simulated protocol + User-Agent regression |
+| Cursor Agent | `cursor` | Cursor Connect/Protobuf request | Simulated protocol + User-Agent regression |
 
 Use a single `rates` block for a model whose prices do not vary by time. These
 rules can coexist with global `peak_windows` used by other models:

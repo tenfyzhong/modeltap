@@ -62,3 +62,30 @@ fn agent_e2e_workflow_exercises_each_supported_protocol_and_agent() {
     assert!(runner.contains("gemini"));
     assert!(runner.contains("assert_metrics.py"));
 }
+
+#[test]
+fn readme_distinguishes_real_agent_e2e_from_simulated_protocol_regressions() {
+    let readme = include_str!("../README.md");
+
+    for agent in ["Claude Code", "Codex", "Gemini CLI", "OpenCode"] {
+        assert!(
+            readme.contains(&format!("| {agent} |")) && readme.contains("Real E2E workflow"),
+            "missing real E2E status for {agent}"
+        );
+    }
+
+    for agent in [
+        "Amazon Q",
+        "Roo Code",
+        "Kiro",
+        "Qoder",
+        "Antigravity",
+        "Cursor Agent",
+    ] {
+        assert!(
+            readme.contains(&format!("| {agent} |"))
+                && readme.contains("Simulated protocol + User-Agent regression"),
+            "missing simulated status for {agent}"
+        );
+    }
+}
