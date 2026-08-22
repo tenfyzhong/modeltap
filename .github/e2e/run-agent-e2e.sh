@@ -149,7 +149,7 @@ timeout 180s pi --extension .github/e2e/pi-openai-provider.ts \
   --provider e2e-openai --model "$OPENAI_COMPLETIONS_MODEL" --no-tools --no-session \
   --print "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/pi.txt"
 
-timeout 180s bun --loader=js:ts "$(npm root -g)/oh-my-pi/bin/oh-my-pi.js" \
+timeout 180s bun --loader=.js:ts "$(npm root -g)/oh-my-pi/bin/oh-my-pi.js" \
   --extension .github/e2e/pi-openai-provider.ts \
   --provider e2e-openai --model "$OPENAI_COMPLETIONS_MODEL" --no-tools --no-session \
   --print "Reply exactly E2E_OK." >"$ARTIFACTS_DIR/oh-my-pi.txt"
