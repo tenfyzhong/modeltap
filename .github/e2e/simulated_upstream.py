@@ -30,14 +30,18 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self):
+        self.close_connection = True
         body = json.dumps({"name": "models/simulated-model", "displayName": "Simulated Model"}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
 
     def do_POST(self):
+        self.close_connection = True
         request_body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         path = urlparse(self.path).path
         if self.headers.get("Content-Type", "").startswith("application/connect+proto"):
@@ -111,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
-
+        self.wfile.flush()
     def log_message(self, format, *args):
         super().log_message(format, *args)
 
