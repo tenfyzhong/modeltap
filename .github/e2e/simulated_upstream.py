@@ -42,7 +42,11 @@ class Handler(BaseHTTPRequestHandler):
         else:
             request = json.loads(request_body or b"{}")
             if request.get("stream"):
-                body = b"data: {\"model\":\"simulated-model\",\"choices\":[{\"delta\":{\"content\":\"E2E_OK\"}}]}\n\ndata: {\"model\":\"simulated-model\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":5}}\n\ndata: [DONE]\n\n"
+                body = (
+                    b"data: {\"model\":\"simulated-model\",\"choices\":[{\"delta\":{\"content\":\"E2E_OK\"},\"finish_reason\":null}]}\n\n"
+                    b"data: {\"model\":\"simulated-model\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":5}}\n\n"
+                    b"data: [DONE]\n\n"
+                )
                 content_type = "text/event-stream"
             else:
                 body, content_type = json.dumps({"model": "simulated-model", "choices": [{"message": {"content": "E2E_OK"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 3, "completion_tokens": 5}}).encode(), "application/json"
