@@ -257,6 +257,28 @@ rather than exporting raw User-Agent values, which would create high-cardinality
 metrics. Tools without a distinctive request header, including Aider, Goose, and
 Continue, remain `unknown` rather than risking an incorrect classification.
 
+### Agent CLI E2E workflow
+
+[`Agent CLI E2E`](.github/workflows/agent-e2e.yml) is a manually triggered
+GitHub Actions workflow. It installs the agent CLIs, routes each request through
+ModelTap, and checks the exported Prometheus metrics for a positive request and
+token total with the expected `agent_cli` label. It does not run on pull
+requests, because it makes billable API requests.
+
+Configure these repository secrets. Every provider has its own base URL so the
+workflow works with both first-party APIs and compatible gateways:
+
+| Protocol and client | Secrets | Repository variable |
+| --- | --- | --- |
+| OpenAI Chat Completions via OpenCode | `OPENAI_COMPLETIONS_API_KEY`, `OPENAI_COMPLETIONS_BASE_URL` | `OPENAI_COMPLETIONS_MODEL` |
+| OpenAI Responses via Codex | `OPENAI_RESPONSES_API_KEY`, `OPENAI_RESPONSES_BASE_URL` | `OPENAI_RESPONSES_MODEL` |
+| Anthropic Messages via Claude Code | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL` |
+| Gemini API via Gemini CLI | `GEMINI_API_KEY`, `GEMINI_BASE_URL` | `GEMINI_MODEL` |
+
+Base URLs must include any API prefix required by the provider, such as `/v1`.
+The workflow derives its TLS interception hosts from these URLs at runtime, so
+do not use a URL that redirects to another API hostname.
+
 | Agent | `agent_cli` | Detection | Tested |
 | --- | --- | --- | --- |
 | Claude Code | `claude_code` | `claude-code/` or `claude-cli/` User-Agent | ✓ |
