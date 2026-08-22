@@ -22,7 +22,7 @@ if len(sys.argv) != 1:
 
 def samples(metrics: str, metric: str, agent: str) -> list[float]:
     pattern = re.compile(
-        rf"^{re.escape(metric)}(?:_total)?\\{{[^}}]*agent_cli=\\\"{re.escape(agent)}\\\"[^}}]*\\}} ([0-9.eE+-]+)$"
+        rf"^{re.escape(metric)}(?:_total)?\{{[^}}]*agent_cli=\"{re.escape(agent)}\"[^}}]*\}} ([0-9.eE+-]+)$"
     )
     return [float(match.group(1)) for line in metrics.splitlines() if (match := pattern.match(line))]
 

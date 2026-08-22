@@ -217,5 +217,5 @@ python3 .github/e2e/simulate_agents.py \
   --url "https://$SIMULATED_HOST:$SIMULATED_PORT/v1/chat/completions" \
   --proxy "$HTTP_PROXY" >"$ARTIFACTS_DIR/simulated-agents.txt"
 
-curl --fail --silent --show-error http://127.0.0.1:9464/metrics >"$ARTIFACTS_DIR/metrics.prom"
 python3 .github/e2e/assert_metrics.py
+curl --fail --silent --show-error http://127.0.0.1:9464/metrics >"$ARTIFACTS_DIR/metrics.prom"
