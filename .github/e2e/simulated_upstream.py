@@ -93,8 +93,8 @@ class Handler(BaseHTTPRequestHandler):
                 }
             }
             if "alt=sse" in self.path or "streamGenerateContent" in self.path:
-                body = f"data: {json.dumps(resp_data)}\n\n".encode()
-                content_type = "text/event-stream"
+                body = b"data: " + json.dumps(resp_data).encode() + b"\r\n\r\n"
+                content_type = "text/event-stream; charset=utf-8"
             else:
                 body = json.dumps(resp_data).encode()
                 content_type = "application/json"
