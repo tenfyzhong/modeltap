@@ -117,7 +117,7 @@ When `telemetry.otlp` is set, usage events are exported through OTLP/HTTP to
 For an end-to-end Grafana Cloud setup—including installing Grafana Alloy on
 macOS or Linux, creating a least-privilege Cloud Access Policy token,
 configuring remote write, validating the pipeline, and importing the bundled
-dashboard—follow the [Grafana Alloy and Grafana Cloud guide](docs/index.html#alloy).
+dashboard—follow the [Grafana Alloy and Grafana Cloud guide](https://tenfy.cn/modeltap/#alloy).
 
 ## Debug logging
 
