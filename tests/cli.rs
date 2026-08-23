@@ -138,12 +138,13 @@ fn shell_completion_files_describe_all_subcommands_and_flags() {
     let bash = include_str!("../completions/modeltap.bash");
     let zsh = include_str!("../completions/_modeltap");
     let fish = include_str!("../completions/modeltap.fish");
+    let powershell = include_str!("../completions/modeltap.ps1");
 
-    for completion in [bash, zsh, fish] {
+    for completion in [&bash, &zsh, &fish, &powershell] {
         assert!(completion.contains("ca-init"));
         assert!(completion.contains("validate"));
     }
-    for completion in [bash, zsh] {
+    for completion in [&bash, &zsh, &powershell] {
         assert!(completion.contains("--config"));
         assert!(completion.contains("--cert"));
         assert!(completion.contains("--key"));

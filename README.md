@@ -68,9 +68,26 @@ The client configuration below includes a working Node.js and oh-my-pi example.
 - Streaming-friendly inspection for HTTP/1.1, HTTP/2, SSE, and WebSocket traffic.
 
 Shell completions are included in `completions/`. Load the appropriate file
-with `source completions/modeltap.bash`, `source completions/_modeltap`, or
-`source completions/modeltap.fish` for Bash, Zsh, or Fish respectively.
+with `source completions/modeltap.bash`, `source completions/_modeltap`,
+`source completions/modeltap.fish`, or `. completions/modeltap.ps1` for Bash,
+Zsh, Fish, or PowerShell respectively.
 
+### Windows quick start & certificate trust
+
+On Windows (PowerShell), generate the CA pair and register the root certificate in the Current User Trusted Root store:
+
+```powershell
+# 1. Initialize local CA certificate and private key
+.\modeltap.exe ca-init --cert certs\modeltap-ca-cert.pem --key certs\modeltap-ca-key.pem
+
+# 2. Trust the root CA certificate in Windows Certificate Store
+Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
+
+# 3. Validate and run
+Copy-Item config.sample.yaml config.yaml
+.\modeltap.exe validate --config config.yaml
+.\modeltap.exe run --config config.yaml
+```
 ### Client configuration
 
 #### Node.js & Agent CLI clients
@@ -80,11 +97,30 @@ root CA. Before starting a Node.js client such as oh-my-pi, point
 `NODE_EXTRA_CA_CERTS` at the ModelTap CA certificate. Use an absolute path and
 restart the client (including any background daemon) after setting it:
 
+**macOS / Linux (Bash / Zsh)**:
 ```shell
 export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
 export HTTP_PROXY=http://127.0.0.1:2080
 export HTTPS_PROXY=http://127.0.0.1:2080
 export PI_PROXY=http://127.0.0.1:2080
+omp
+```
+
+**Windows (PowerShell)**:
+```powershell
+$env:NODE_EXTRA_CA_CERTS = "$pwd\certs\modeltap-ca-cert.pem"
+$env:HTTP_PROXY = "http://127.0.0.1:2080"
+$env:HTTPS_PROXY = "http://127.0.0.1:2080"
+$env:PI_PROXY = "http://127.0.0.1:2080"
+omp
+```
+
+**Windows (Command Prompt)**:
+```cmd
+set NODE_EXTRA_CA_CERTS=%cd%\certs\modeltap-ca-cert.pem
+set HTTP_PROXY=http://127.0.0.1:2080
+set HTTPS_PROXY=http://127.0.0.1:2080
+set PI_PROXY=http://127.0.0.1:2080
 omp
 ```
 
@@ -273,6 +309,126 @@ stream disconnected before completion: invalid peer certificate: UnknownIssuer
   security dump-trust-settings -d | grep -A 2 "modeltap local CA" || security dump-trust-settings | grep -A 2 "modeltap local CA"
   ```
 
+## Running as a background service
+
+To run ModelTap persistently in the background on startup, configure it as an OS service:
+
+### Windows Service (NSSM)
+
+[NSSM (Non-Sucking Service Manager)](https://nssm.cc/) is the simplest way to run ModelTap as a Windows service with automatic restart on crash:
+
+```powershell
+# 1. Install NSSM (via Scoop or Winget)
+winget install NSSM.NSSM
+# or: scoop install nssm
+
+# 2. Install and configure ModelTap as a service (Run PowerShell as Administrator)
+nssm install ModelTap "C:\modeltap\modeltap.exe" "run --config C:\modeltap\config.yaml"
+nssm set ModelTap AppDirectory "C:\modeltap"
+nssm set ModelTap Start SERVICE_AUTO_START
+nssm set ModelTap AppStdout "C:\modeltap\logs\service-stdout.log"
+nssm set ModelTap AppStderr "C:\modeltap\logs\service-stderr.log"
+
+# 3. Start the service
+nssm start ModelTap
+
+# 4. Service management
+nssm status ModelTap
+nssm restart ModelTap
+nssm stop ModelTap
+```
+
+### Windows Service (WinSW)
+
+Alternatively, download [WinSW](https://github.com/winsw/winsw/releases) (e.g. `WinSW-x64.exe`), place it as `modeltap-service.exe` next to `modeltap.exe`, and create `modeltap-service.xml`:
+
+```xml
+<service>
+  <id>ModelTap</id>
+  <name>ModelTap AI Proxy</name>
+  <description>ModelTap AI traffic monitor and cost proxy</description>
+  <executable>C:\modeltap\modeltap.exe</executable>
+  <arguments>run --config C:\modeltap\config.yaml</arguments>
+  <workingdirectory>C:\modeltap</workingdirectory>
+  <logpath>C:\modeltap\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>
+```
+
+Install and start the service:
+
+```powershell
+.\modeltap-service.exe install
+.\modeltap-service.exe start
+```
+
+### Linux (systemd)
+
+Create `/etc/systemd/system/modeltap.service`:
+
+```ini
+[Unit]
+Description=ModelTap AI Traffic Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=modeltap
+WorkingDirectory=/opt/modeltap
+ExecStart=/opt/modeltap/modeltap run --config /opt/modeltap/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```shell
+sudo systemctl daemon-reload
+sudo systemctl enable --now modeltap
+```
+
+### macOS (launchd)
+
+Create `~/Library/LaunchAgents/cn.tenfy.modeltap.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>cn.tenfy.modeltap</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/modeltap</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>/usr/local/etc/modeltap/config.yaml</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/modeltap.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/modeltap.stderr.log</string>
+</dict>
+</plist>
+```
+
+Load and start the agent:
+
+```shell
+launchctl load ~/Library/LaunchAgents/cn.tenfy.modeltap.plist
+```
 ## Contributing and architecture
 
 For architecture details, internal protocol parser design, agent CLI detection rules, and testing workflows, see [CONTRIBUTING.md](CONTRIBUTING.md).

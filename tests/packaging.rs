@@ -43,13 +43,14 @@ fn compose_uses_a_user_provided_config_yaml_file() {
 }
 
 #[test]
-fn release_workflow_excludes_intel_macos_binaries() {
+fn release_workflow_includes_windows_and_excludes_intel_macos_binaries() {
     let workflow = include_str!("../.github/workflows/release.yml");
 
     for target in [
         "aarch64-apple-darwin",
         "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc",
     ] {
         assert!(workflow.contains(target), "missing release target {target}");
     }

@@ -185,3 +185,39 @@ async fn unavailable_egress_fails_closed_before_connect_response() {
     );
     proxy.await.unwrap();
 }
+
+#[tokio::test]
+async fn run_with_shutdown_terminates_listener_when_signal_resolves() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let config = Arc::new(
+        Config::from_yaml(&format!(
+            "proxy: {{listen: 127.0.0.1:{port}}}\nsites: []\npricing: {{timezone: UTC}}\n"
+        ))
+        .unwrap(),
+    );
+    let prices = Arc::new(modeltap::pricing::PriceBook::from_config(&config.pricing).unwrap());
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let proxy_handle = tokio::spawn(async move {
+        modeltap::proxy::run_with_shutdown(config, None, None, prices, async move {
+            let _ = shutdown_rx.await;
+        })
+        .await
+    });
+
+    let mut retries = 0;
+    while retries < 20 {
+        if TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        retries += 1;
+    }
+
+    shutdown_tx.send(()).unwrap();
+    let result = proxy_handle.await.unwrap();
+    assert!(result.is_ok());
+}
