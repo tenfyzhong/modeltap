@@ -200,3 +200,37 @@ fn help_describes_commands_and_flags() {
     assert!(help.contains("-V, --version"));
     assert!(!help.contains("ENVIRONMENT:"));
 }
+
+#[test]
+fn parses_the_version_flags() {
+    assert_eq!(
+        parse_arguments(["modeltap", "--version"]),
+        Ok(Command::Version)
+    );
+    assert_eq!(parse_arguments(["modeltap", "-V"]), Ok(Command::Version));
+}
+
+#[test]
+fn version_flag_prints_modeltap_with_version() {
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_modeltap"))
+        .arg("--version")
+        .output()
+        .expect("failed to execute modeltap");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        stdout.trim(),
+        format!("modeltap {}", modeltap::cli::VERSION)
+    );
+
+    let output_short = ProcessCommand::new(env!("CARGO_BIN_EXE_modeltap"))
+        .arg("-V")
+        .output()
+        .expect("failed to execute modeltap");
+    assert!(output_short.status.success());
+    let stdout_short = String::from_utf8(output_short.stdout).unwrap();
+    assert_eq!(
+        stdout_short.trim(),
+        format!("modeltap {}", modeltap::cli::VERSION)
+    );
+}

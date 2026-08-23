@@ -24,6 +24,7 @@ jobs:
     outputs:
       release: ${{ steps.tags.outputs.release }}
       image: ${{ steps.tags.outputs.image }}
+      version: ${{ steps.tags.outputs.version }}
     steps:
       - name: Resolve release and image tags
         id: tags
@@ -45,7 +46,7 @@ jobs:
 
           echo "release=$release_tag" >> "$GITHUB_OUTPUT"
           echo "image=$image_tag" >> "$GITHUB_OUTPUT"
-
+          echo "version=$image_tag" >> "$GITHUB_OUTPUT"
   build-and-push-architecture:
     needs: resolve-tags
     strategy:
@@ -65,6 +66,8 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
+      - name: Set release version in Cargo manifests
+        run: python3 .github/scripts/set-version.py "${{ needs.resolve-tags.outputs.version }}"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -131,6 +134,8 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
+      - name: Set release version in Cargo manifests
+        run: python3 .github/scripts/set-version.py "${{ needs.resolve-tags.outputs.version }}"
       - name: Install Rust 1.85
         uses: dtolnay/rust-toolchain@1.85
 
@@ -193,7 +198,6 @@ jobs:
           formula.sub!(/^  url ".*"$/, %(  url "#{source_url}")) or abort("Formula URL not found")
           formula.sub!(/^  sha256 ".*"$/, %(  sha256 "#{source_sha256}")) or abort("Formula SHA-256 not found")
           File.write(formula_path, formula)
-          RUBY
 
       - name: Set up Homebrew tap
         run: |
@@ -316,7 +320,6 @@ jobs:
           formula.sub!(/^  url ".*"$/, %(  url "#{source_url}")) or abort("Formula URL not found")
           formula.sub!(/^  sha256 ".*"$/, %(  sha256 "#{source_sha256}")) or abort("Formula SHA-256 not found")
           File.write(formula_path, formula)
-          RUBY
 
       - name: Add bottle metadata to formula
         run: |
