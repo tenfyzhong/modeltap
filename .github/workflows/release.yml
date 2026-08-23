@@ -24,6 +24,7 @@ jobs:
     outputs:
       release: ${{ steps.tags.outputs.release }}
       image: ${{ steps.tags.outputs.image }}
+      version: ${{ steps.tags.outputs.version }}
     steps:
       - name: Resolve release and image tags
         id: tags
@@ -45,7 +46,7 @@ jobs:
 
           echo "release=$release_tag" >> "$GITHUB_OUTPUT"
           echo "image=$image_tag" >> "$GITHUB_OUTPUT"
-
+          echo "version=$image_tag" >> "$GITHUB_OUTPUT"
   build-and-push-architecture:
     needs: resolve-tags
     strategy:
@@ -64,8 +65,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
 
+      - name: Set release version in Cargo manifests
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-tags.outputs.version }}
+        run: |
+          python3 -c '
+          import os, re
+          version = os.environ["RELEASE_VERSION"]
+          for path in ["Cargo.toml", "Cargo.lock"]:
+              content = open(path).read()
+              if path == "Cargo.toml":
+                  content = re.sub(r"^version = \"[^\"]*\"", f"version = \"{version}\"", content, count=1, flags=re.MULTILINE)
+              else:
+                  content = re.sub(r"(name = \"modeltap\"\nversion = )\"[^\"]*\"", f"\\g<1>\"{version}\"", content, count=1)
+              open(path, "w").write(content)
+          '
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -131,8 +146,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
 
+      - name: Set release version in Cargo manifests
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-tags.outputs.version }}
+        run: |
+          python3 -c '
+          import os, re
+          version = os.environ["RELEASE_VERSION"]
+          for path in ["Cargo.toml", "Cargo.lock"]:
+              content = open(path).read()
+              if path == "Cargo.toml":
+                  content = re.sub(r"^version = \"[^\"]*\"", f"version = \"{version}\"", content, count=1, flags=re.MULTILINE)
+              else:
+                  content = re.sub(r"(name = \"modeltap\"\nversion = )\"[^\"]*\"", f"\\g<1>\"{version}\"", content, count=1)
+              open(path, "w").write(content)
+          '
       - name: Install Rust 1.85
         uses: dtolnay/rust-toolchain@1.85
 

@@ -10,23 +10,23 @@ fn docker_image_builds_the_real_modeltap_sources() {
 }
 
 #[test]
-fn docker_image_includes_build_script_and_git_metadata() {
+fn docker_image_does_not_require_git_metadata_or_build_scripts() {
     let dockerfile = include_str!("../Dockerfile");
     let dockerignore = include_str!("../.dockerignore");
 
-    assert!(dockerfile.contains("COPY build.rs ./"));
-    assert!(dockerfile.contains("COPY .git ./.git"));
-    assert!(!dockerfile.contains("ARG MODELTAP_VERSION"));
-    assert!(!dockerfile.contains("ENV MODELTAP_VERSION"));
-    assert!(!dockerignore.lines().any(|line| line.trim() == ".git"));
+    assert!(!dockerfile.contains("build.rs"));
+    assert!(!dockerfile.contains(".git"));
+    assert!(!dockerfile.contains("MODELTAP_VERSION"));
+    assert!(dockerignore.lines().any(|line| line.trim() == ".git"));
 }
 
 #[test]
-fn release_workflow_fetches_git_tags_without_environment_version_overrides() {
+fn release_workflow_sets_cargo_version_from_workflow_tag() {
     let workflow = include_str!("../.github/workflows/release.yml");
 
-    assert!(workflow.contains("fetch-depth: 0"));
-    assert!(!workflow.contains("MODELTAP_VERSION"));
+    assert!(workflow.contains("version=$image_tag") || workflow.contains("version=${image_tag}"));
+    assert!(workflow.contains("RELEASE_VERSION: ${{ needs.resolve-tags.outputs.version }}"));
+    assert!(!workflow.contains("fetch-depth: 0"));
 }
 
 #[test]

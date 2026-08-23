@@ -1,9 +1,6 @@
 use thiserror::Error;
 
-pub const VERSION: &str = match option_env!("MODELTAP_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn help_text() -> &'static str {
     "modeltap - AI API MITM proxy and usage monitor

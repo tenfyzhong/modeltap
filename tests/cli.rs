@@ -202,20 +202,12 @@ fn help_describes_commands_and_flags() {
 }
 
 #[test]
-fn version_reflects_build_or_git_tag_version() {
-    use modeltap::cli::VERSION;
-
-    assert!(!VERSION.is_empty());
-    if let Ok(output) = ProcessCommand::new("git")
-        .args(["describe", "--tags", "--always"])
-        .output()
-    {
-        if output.status.success() {
-            let git_tag = String::from_utf8(output.stdout).unwrap().trim().to_string();
-            let clean_tag = git_tag.strip_prefix('v').unwrap_or(&git_tag);
-            assert_eq!(VERSION, clean_tag);
-        }
-    }
+fn parses_the_version_flags() {
+    assert_eq!(
+        parse_arguments(["modeltap", "--version"]),
+        Ok(Command::Version)
+    );
+    assert_eq!(parse_arguments(["modeltap", "-V"]), Ok(Command::Version));
 }
 
 #[test]
