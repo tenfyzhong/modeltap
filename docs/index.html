@@ -27,7 +27,7 @@
   <p><strong>No SDK. No agent patches. No vendor-specific telemetry integration.</strong></p>
   <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.jpg" alt="ModelTap Grafana dashboard showing QPS, token usage, estimated cost, and agent breakdowns" loading="eager">
   <p>ModelTap recognizes OpenAI, Anthropic, Gemini, and DeepSeek API usage; detects common agent CLIs automatically; supports streaming SSE and WebSocket traffic; and can forward directly or through HTTP, HTTPS, and SOCKS5 egress proxies.</p>
-  <nav><a href="#why">Why ModelTap?</a><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#node">Node.js</a><a href="#config">Configuration</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
+  <nav><a href="#why">Why ModelTap?</a><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#windows">Windows</a><a href="#certificate">Certificates</a><a href="#node">Node.js</a><a href="#config">Configuration</a><a href="#service">Service</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
 
   <h2 id="why">Why ModelTap?</h2>
   <p>Native agent telemetry and log parsers can be useful, but neither provides the same provider-independent view of what left the machine. ModelTap observes the model API boundary instead.</p>
@@ -83,11 +83,35 @@ modeltap ca-init \
 cp config.sample.yaml config.yaml
 modeltap validate --config config.yaml
 modeltap run --config config.yaml</code></pre>
-  <p>Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment. The bundled configuration uses a sample <code>privoxy</code> egress route; set <code>egress.default: direct</code> if you do not use an upstream proxy. Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code>; source <code>modeltap.bash</code>, <code>_modeltap</code>, or <code>modeltap.fish</code> for Bash, Zsh, or Fish.</p>
+  <p>Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment. The bundled configuration uses a sample <code>privoxy</code> egress route; set <code>egress.default: direct</code> if you do not use an upstream proxy. Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code>; source <code>modeltap.bash</code>, <code>_modeltap</code>, <code>modeltap.fish</code>, or <code>modeltap.ps1</code> for Bash, Zsh, Fish, or PowerShell.</p>
   <p>Set your browser, CLI, or SDK HTTP proxy to <code>http://127.0.0.1:2080</code>. Every host configured under <code>sites</code> is decrypted; other CONNECT tunnels remain transparent.</p>
   <p>Each <code>hosts</code> entry is a domain root and includes all subdomains at a DNS label boundary. For example, <code>googleapis.com</code> includes <code>generativelanguage.googleapis.com</code>, but does not match <code>notgoogleapis.com</code>. Overlapping domain trees across sites are rejected.</p>
   <p>The inbound proxy does not require client authentication, including on a non-loopback listener such as <code>0.0.0.0:2080</code>. Protect non-loopback listeners with a host firewall, private network, or another trusted access-control layer to avoid running an open proxy.</p>
 
+  <h2 id="windows">Windows setup and certificate trust</h2>
+  <p>On Windows (PowerShell), generate the CA pair and import the root certificate into the <strong>Current User Trusted Root Certification Authorities</strong> store:</p>
+  <pre><code># 1. Initialize local CA certificate and private key
+.\modeltap.exe ca-init --cert certs\modeltap-ca-cert.pem --key certs\modeltap-ca-key.pem
+
+# 2. Trust the root CA certificate in Windows Certificate Store
+Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
+
+# 3. Validate and run
+Copy-Item config.sample.yaml config.yaml
+.\modeltap.exe validate --config config.yaml
+.\modeltap.exe run --config config.yaml</code></pre>
+  <p>To configure CLI and SDK agents in PowerShell:</p>
+  <pre><code>$env:NODE_EXTRA_CA_CERTS = "$pwd\certs\modeltap-ca-cert.pem"
+$env:HTTP_PROXY = "http://127.0.0.1:2080"
+$env:HTTPS_PROXY = "http://127.0.0.1:2080"
+$env:PI_PROXY = "http://127.0.0.1:2080"
+omp</code></pre>
+  <p>In Command Prompt (CMD):</p>
+  <pre><code>set NODE_EXTRA_CA_CERTS=%cd%\certs\modeltap-ca-cert.pem
+set HTTP_PROXY=http://127.0.0.1:2080
+set HTTPS_PROXY=http://127.0.0.1:2080
+set PI_PROXY=http://127.0.0.1:2080
+omp</code></pre>
   <h2 id="certificate">Install the local CA</h2>
   <p>On macOS, import <code>certs/modeltap-ca-cert.pem</code> into the <strong>System</strong> keychain with Keychain Access and set it to <strong>Always Trust</strong>. Never import, copy, or share <code>modeltap-ca-key.pem</code>.</p>
   <pre><code>curl --proxy http://127.0.0.1:2080 \
@@ -268,6 +292,68 @@ pricing:
   <pre><code>rates:
   input: 0.02
   output: 0</code></pre>
+
+  <h2 id="service">Running as a background service</h2>
+  <p>To run ModelTap persistently in the background on startup, configure it as an operating system service:</p>
+
+  <h3>Windows Service (NSSM)</h3>
+  <p><a href="https://nssm.cc/">NSSM (Non-Sucking Service Manager)</a> runs ModelTap as a Windows service with automatic restart on crash:</p>
+  <pre><code># 1. Install NSSM (Run PowerShell as Administrator)
+winget install NSSM.NSSM
+
+# 2. Install and configure ModelTap service
+nssm install ModelTap "C:\modeltap\modeltap.exe" "run --config C:\modeltap\config.yaml"
+nssm set ModelTap AppDirectory "C:\modeltap"
+nssm set ModelTap Start SERVICE_AUTO_START
+nssm set ModelTap AppStdout "C:\modeltap\logs\service-stdout.log"
+nssm set ModelTap AppStderr "C:\modeltap\logs\service-stderr.log"
+
+# 3. Start the service
+nssm start ModelTap</code></pre>
+
+  <h3>Linux (systemd)</h3>
+  <p>Create <code>/etc/systemd/system/modeltap.service</code>:</p>
+  <pre><code>[Unit]
+Description=ModelTap AI Traffic Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=modeltap
+WorkingDirectory=/opt/modeltap
+ExecStart=/opt/modeltap/modeltap run --config /opt/modeltap/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+  <h3>macOS (launchd)</h3>
+  <p>Create <code>~/Library/LaunchAgents/cn.tenfy.modeltap.plist</code>:</p>
+  <pre><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"&gt;
+&lt;plist version="1.0"&gt;
+&lt;dict&gt;
+    &lt;key&gt;Label&lt;/key&gt;
+    &lt;string&gt;cn.tenfy.modeltap&lt;/string&gt;
+    &lt;key&gt;ProgramArguments&lt;/key&gt;
+    &lt;array&gt;
+        &lt;string&gt;/usr/local/bin/modeltap&lt;/string&gt;
+        &lt;string&gt;run&lt;/string&gt;
+        &lt;string&gt;--config&lt;/string&gt;
+        &lt;string&gt;/usr/local/etc/modeltap/config.yaml&lt;/string&gt;
+    &lt;/array&gt;
+    &lt;key&gt;RunAtLoad&lt;/key&gt;
+    &lt;true/&gt;
+    &lt;key&gt;KeepAlive&lt;/key&gt;
+    &lt;true/&gt;
+    &lt;key&gt;StandardOutPath&lt;/key&gt;
+    &lt;string&gt;/tmp/modeltap.stdout.log&lt;/string&gt;
+    &lt;key&gt;StandardErrorPath&lt;/key&gt;
+    &lt;string&gt;/tmp/modeltap.stderr.log&lt;/string&gt;
+&lt;/dict&gt;
+&lt;/plist&gt;</code></pre>
   <h2 id="sites">Sites and protocol detection</h2>
   <p>A site <code>id</code> is the service identity used in metric labels and <code>pricing.rules</code>; use the actual vendor or service name, such as <code>grok</code>, <code>cursor</code>, or <code>openai</code>. ModelTap detects the usage protocol from each request or response automatically. Site configuration therefore has no <code>provider</code> or <code>provider_type</code> field. It recognizes Cursor Connect/Protobuf, Gemini usage metadata, Anthropic message events, and OpenAI Chat/Responses payloads. A DeepSeek site can report both OpenAI-compatible and Anthropic-compatible traffic without any special setting.</p>
   <p>Every host configured under <code>sites</code> is intercepted with TLS MITM. This makes <code>sites</code> the explicit allowlist of traffic that ModelTap can inspect. Hosts absent from <code>sites</code> are forwarded without MITM and no usage is collected. Remove the former <code>provider</code>, <code>provider_type</code>, and <code>mitm</code> fields when migrating an existing configuration.</p>
@@ -396,7 +482,7 @@ docker compose logs -f modeltap</code></pre>
 
   <h2>Docker Hub and binary releases</h2>
   <p>Pushing a Git tag, or manually dispatching the workflow for an existing tag, publishes Docker images and creates or updates the matching GitHub Release. Configure repository secrets <code>DOCKERHUB_USERNAME</code> and <code>DOCKERHUB_TOKEN</code>. The workflow builds separate <code>linux/amd64</code> and <code>linux/arm64</code> images with <code>-amd64</code> and <code>-arm64</code> suffixes, then publishes multi-architecture manifests for the version (without a leading <code>v</code>) and <code>latest</code>.</p>
-  <p>The GitHub Release also contains the Homebrew bottle and three compressed standalone binaries: <code>modeltap-&lt;tag&gt;-aarch64-apple-darwin.tar.gz</code>, <code>modeltap-&lt;tag&gt;-x86_64-unknown-linux-gnu.tar.gz</code>, and <code>modeltap-&lt;tag&gt;-aarch64-unknown-linux-gnu.tar.gz</code>. A tag whose version cannot be used as a Docker tag fails before publishing.</p>
+  <p>The GitHub Release also contains the Homebrew bottle and compressed standalone binaries: <code>modeltap-&lt;tag&gt;-aarch64-apple-darwin.tar.gz</code>, <code>modeltap-&lt;tag&gt;-x86_64-unknown-linux-gnu.tar.gz</code>, <code>modeltap-&lt;tag&gt;-aarch64-unknown-linux-gnu.tar.gz</code>, and <code>modeltap-&lt;tag&gt;-x86_64-pc-windows-msvc.zip</code> (also available as <code>.tar.gz</code>). A tag whose version cannot be used as a Docker tag fails before publishing.</p>
   <p>The release workflow builds a Homebrew bottle and uploads it to the matching GitHub Release. After that upload succeeds, it opens or updates a Formula bump PR for <code>modeltap</code> in the <code>tenfyzhong/tap</code> tap. Set the <code>HOMEBREW_TAP_TOKEN</code> repository secret to a GitHub token that can create pull requests in <code>tenfyzhong/homebrew-tap</code>. Create <code>Formula/modeltap.rb</code> in that tap before publishing the first tag.</p>
 
   <h2 id="security">Security</h2>
