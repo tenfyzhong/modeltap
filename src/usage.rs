@@ -163,10 +163,12 @@ fn auto_parse_value(value: &UsageEvent) -> Option<(Provider, ParsedUsage)> {
             .kind
             .as_deref()
             .is_some_and(|kind| kind.starts_with("message_"))
-        || value
-            .usage
-            .as_ref()
-            .is_some_and(|usage| usage.input_tokens.is_some())
+        || value.usage.as_ref().is_some_and(|usage| {
+            usage.input_tokens.is_some()
+                || usage.output_tokens.is_some()
+                || usage.cache_creation_input_tokens.is_some()
+                || usage.cache_read_input_tokens.is_some()
+        })
     {
         Provider::Anthropic
     } else if value
@@ -304,6 +306,7 @@ pub struct AutoStreamUsageParser {
     scan_from: usize,
     model: Option<String>,
     latest: Option<(Provider, ParsedUsage)>,
+    reported: bool,
 }
 
 const BUFFER_COMPACTION_THRESHOLD: usize = 64 * 1024;
@@ -323,6 +326,7 @@ impl AutoStreamUsageParser {
             scan_from: 0,
             model: None,
             latest: None,
+            reported: false,
         }
     }
 
@@ -371,10 +375,6 @@ impl AutoStreamUsageParser {
     }
 
     fn process_event(&mut self, event: SseEvent) -> Option<(Provider, ParsedUsage)> {
-        if event.is_done {
-            return self.latest.clone();
-        }
-
         if let Some(value) = event.value {
             if self.model.is_none() {
                 self.model = model_from_value(&value);
@@ -390,22 +390,100 @@ impl AutoStreamUsageParser {
                 if self.model.is_none() {
                     self.model = usage.model.clone();
                 }
+                if let Some((_prev_provider, prev_usage)) = &self.latest {
+                    if usage.tokens.input == 0 && prev_usage.tokens.input > 0 {
+                        usage.tokens.input = prev_usage.tokens.input;
+                    }
+                    if usage.tokens.output == 0 && prev_usage.tokens.output > 0 {
+                        usage.tokens.output = prev_usage.tokens.output;
+                    }
+                    if usage.tokens.cache_read == 0 && prev_usage.tokens.cache_read > 0 {
+                        usage.tokens.cache_read = prev_usage.tokens.cache_read;
+                    }
+                    if usage.tokens.cache_write == 0 && prev_usage.tokens.cache_write > 0 {
+                        usage.tokens.cache_write = prev_usage.tokens.cache_write;
+                    }
+                    if usage.model.is_none() {
+                        usage.model = prev_usage.model.clone();
+                    }
+                }
                 self.latest = Some((provider, usage));
+                self.reported = false;
             }
         }
-        event
-            .is_terminal
-            .then(|| self.latest.clone())
-            .flatten()
-            .or_else(|| {
-                self.latest
-                    .as_ref()
-                    .filter(|(provider, _)| *provider == Provider::Gemini)
-                    .cloned()
-            })
+
+        if (event.is_terminal || event.is_done) && !self.reported {
+            if let Some((provider, usage)) = self.latest.clone() {
+                self.reported = true;
+                return Some((provider, usage));
+            }
+        }
+        None
+    }
+
+    pub fn finish(&mut self) -> Option<(Provider, ParsedUsage)> {
+        if !self.reported {
+            if let Some((provider, usage)) = self.latest.clone() {
+                self.reported = true;
+                return Some((provider, usage));
+            }
+        }
+        None
+    }
+
+    pub fn reported(&self) -> bool {
+        self.reported
     }
 }
 
+pub const MAX_DIRECT_JSON_BUFFER_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone, Default)]
+pub struct DirectJsonUsageParser {
+    buffer: Vec<u8>,
+    reported: bool,
+}
+
+impl DirectJsonUsageParser {
+    pub fn new() -> Self {
+        Self {
+            buffer: Vec::new(),
+            reported: false,
+        }
+    }
+
+    pub fn push(&mut self, bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
+        if self.reported || bytes.is_empty() {
+            return None;
+        }
+        if self.buffer.len().saturating_add(bytes.len()) > MAX_DIRECT_JSON_BUFFER_BYTES {
+            self.reported = true;
+            self.buffer.clear();
+            return None;
+        }
+        self.buffer.extend_from_slice(bytes);
+        if let Some(usage) = auto_parse_json(&self.buffer) {
+            self.reported = true;
+            self.buffer.clear();
+            return Some(usage);
+        }
+        None
+    }
+
+    pub fn finish(&mut self) -> Option<(Provider, ParsedUsage)> {
+        if self.reported || self.buffer.is_empty() {
+            return None;
+        }
+        let usage = auto_parse_json(&self.buffer);
+        self.reported = true;
+        self.buffer.clear();
+        usage
+    }
+
+    pub fn reported(&self) -> bool {
+        self.reported
+    }
+}
 struct SseEvent {
     is_done: bool,
     is_terminal: bool,
@@ -686,6 +764,9 @@ impl WebSocketUsageParser {
         }
         self.sse.push(payload)
     }
+    pub fn finish(&mut self) -> Option<(Provider, ParsedUsage)> {
+        self.sse.finish()
+    }
 }
 
 fn compact_websocket_buffer(buffer: &mut Vec<u8>, consumed: usize) {
@@ -763,8 +844,22 @@ impl StreamUsageParser {
     }
 
     fn update(&mut self, mut parsed: ParsedUsage) {
-        if parsed.model.is_none() {
-            parsed.model = self.latest.as_ref().and_then(|usage| usage.model.clone());
+        if let Some(prev) = &self.latest {
+            if parsed.tokens.input == 0 && prev.tokens.input > 0 {
+                parsed.tokens.input = prev.tokens.input;
+            }
+            if parsed.tokens.output == 0 && prev.tokens.output > 0 {
+                parsed.tokens.output = prev.tokens.output;
+            }
+            if parsed.tokens.cache_read == 0 && prev.tokens.cache_read > 0 {
+                parsed.tokens.cache_read = prev.tokens.cache_read;
+            }
+            if parsed.tokens.cache_write == 0 && prev.tokens.cache_write > 0 {
+                parsed.tokens.cache_write = prev.tokens.cache_write;
+            }
+            if parsed.model.is_none() {
+                parsed.model = prev.model.clone();
+            }
         }
         self.latest = Some(parsed);
     }
@@ -973,8 +1068,17 @@ fn parse_anthropic(value: &UsageEvent) -> Option<ParsedUsage> {
         .usage
         .as_ref()
         .or_else(|| value.message.as_deref()?.usage.as_ref())?;
-    let input = usage.input_tokens?;
+    let input = usage.input_tokens.unwrap_or(0);
     let output = usage.output_tokens.unwrap_or(0);
+    let cache_read = usage.cache_read_input_tokens.unwrap_or(0);
+    let cache_write = usage.cache_creation_input_tokens.unwrap_or(0);
+    if usage.input_tokens.is_none()
+        && usage.output_tokens.is_none()
+        && usage.cache_read_input_tokens.is_none()
+        && usage.cache_creation_input_tokens.is_none()
+    {
+        return None;
+    }
     let model = value.model.clone().or_else(|| {
         value
             .message
@@ -986,8 +1090,8 @@ fn parse_anthropic(value: &UsageEvent) -> Option<ParsedUsage> {
         tokens: TokenUsage {
             input,
             output,
-            cache_read: usage.cache_read_input_tokens.unwrap_or(0),
-            cache_write: usage.cache_creation_input_tokens.unwrap_or(0),
+            cache_read,
+            cache_write,
         },
     })
 }

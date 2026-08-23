@@ -1,7 +1,8 @@
 use flate2::{Compress, Compression, FlushCompress};
 use modeltap::usage::{
-    AutoStreamUsageParser, CursorUsageParser, Provider, StreamUsageParser, TokenUsage,
-    WebSocketUsageParser, auto_parse_json, permessage_deflate_server_no_context_takeover,
+    AutoStreamUsageParser, CursorUsageParser, DirectJsonUsageParser, Provider, StreamUsageParser,
+    TokenUsage, WebSocketUsageParser, auto_parse_json,
+    permessage_deflate_server_no_context_takeover,
 };
 
 #[test]
@@ -354,6 +355,95 @@ fn parses_negotiated_server_permessage_deflate_parameters() {
         permessage_deflate_server_no_context_takeover("x-example; permessage-deflate=yes"),
         None
     );
+}
+#[test]
+fn gemini_sse_stream_does_not_emit_per_chunk_and_emits_once_at_finish() {
+    let mut parser = AutoStreamUsageParser::new();
+    let chunk1 = b"data: {\"modelVersion\":\"gemini-2.5-flash\",\"usageMetadata\":{\"promptTokenCount\":100,\"cachedContentTokenCount\":20,\"totalTokenCount\":110}}\n\n";
+    let chunk2 = b"data: {\"modelVersion\":\"gemini-2.5-flash\",\"usageMetadata\":{\"promptTokenCount\":100,\"cachedContentTokenCount\":20,\"totalTokenCount\":125}}\n\n";
+    let chunk3 = b"data: {\"modelVersion\":\"gemini-2.5-flash\",\"usageMetadata\":{\"promptTokenCount\":100,\"cachedContentTokenCount\":20,\"totalTokenCount\":140}}\n\n";
+    assert!(parser.push(chunk1).is_none());
+    assert!(parser.push(chunk2).is_none());
+    assert!(parser.push(chunk3).is_none());
+
+    let (provider, usage) = parser.finish().expect("finish emits final usage");
+    assert_eq!(provider, Provider::Gemini);
+    assert_eq!(usage.model.as_deref(), Some("gemini-2.5-flash"));
+    assert_eq!(usage.tokens.input, 80);
+    assert_eq!(usage.tokens.output, 40);
+    assert_eq!(usage.tokens.cache_read, 20);
+    assert_eq!(usage.tokens.cache_write, 0);
+
+    assert!(
+        parser.finish().is_none(),
+        "subsequent finish must not re-emit"
+    );
+}
+
+#[test]
+fn openai_response_completed_and_done_does_not_duplicate_report() {
+    let mut parser = AutoStreamUsageParser::new();
+    let completed = b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-4o\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20,\"input_tokens_details\":{\"cached_tokens\":30}}}}\n\n";
+    let (provider, usage) = parser.push(completed).expect("emits on response.completed");
+    assert_eq!(provider, Provider::OpenAiResponses);
+    assert_eq!(usage.tokens.input, 70);
+    assert_eq!(usage.tokens.output, 20);
+    assert_eq!(usage.tokens.cache_read, 30);
+
+    assert!(parser.push(b"data: [DONE]\n\n").is_none());
+    assert!(parser.finish().is_none());
+}
+
+#[test]
+fn anthropic_sse_merges_input_from_message_start_and_output_from_message_delta() {
+    let mut parser = AutoStreamUsageParser::new();
+    let start = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-3-5-sonnet-20241022\",\"usage\":{\"input_tokens\":150,\"cache_read_input_tokens\":40,\"cache_creation_input_tokens\":10}}}\n\n";
+    let delta = b"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":65}}\n\n";
+    let stop = b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+
+    assert!(parser.push(start).is_none());
+    assert!(parser.push(delta).is_none());
+    let (provider, usage) = parser.push(stop).expect("emits on message_stop");
+    assert_eq!(provider, Provider::Anthropic);
+    assert_eq!(usage.model.as_deref(), Some("claude-3-5-sonnet-20241022"));
+    assert_eq!(usage.tokens.input, 150);
+    assert_eq!(usage.tokens.output, 65);
+    assert_eq!(usage.tokens.cache_read, 40);
+    assert_eq!(usage.tokens.cache_write, 10);
+
+    assert!(parser.finish().is_none());
+}
+
+#[test]
+fn direct_json_usage_parser_handles_chunked_response_body() {
+    let mut parser = DirectJsonUsageParser::new();
+    let chunk1 =
+        br#"{"id":"chatcmpl-123","model":"gpt-4o","choices":[{"message":{"content":"Hello"#;
+    let chunk2 =
+        br#""}}],"usage":{"prompt_tokens":100,"completion_tokens":25,"total_tokens":125}}"#;
+
+    assert!(parser.push(chunk1).is_none());
+    let (provider, usage) = parser.push(chunk2).expect("parses complete json");
+    assert_eq!(provider, Provider::OpenAiChat);
+    assert_eq!(usage.model.as_deref(), Some("gpt-4o"));
+    assert_eq!(usage.tokens.input, 100);
+    assert_eq!(usage.tokens.output, 25);
+
+    assert!(parser.push(br#"extra"#).is_none());
+    assert!(parser.finish().is_none());
+}
+
+#[test]
+fn auto_stream_usage_parser_emits_on_finish_when_stream_ends_without_done_or_terminal_event() {
+    let mut parser = AutoStreamUsageParser::new();
+    let event = b"data: {\"model\":\"gpt-4o\",\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":15}}\n\n";
+    assert!(parser.push(event).is_none());
+
+    let (provider, usage) = parser.finish().expect("finish emits usage");
+    assert_eq!(provider, Provider::OpenAiChat);
+    assert_eq!(usage.tokens.input, 80);
+    assert_eq!(usage.tokens.output, 15);
+    assert!(parser.finish().is_none());
 }
 
 fn websocket_text_frame(payload: &[u8]) -> Vec<u8> {
