@@ -200,3 +200,45 @@ fn help_describes_commands_and_flags() {
     assert!(help.contains("-V, --version"));
     assert!(!help.contains("ENVIRONMENT:"));
 }
+
+#[test]
+fn version_reflects_build_or_git_tag_version() {
+    use modeltap::cli::VERSION;
+
+    assert!(!VERSION.is_empty());
+    if let Ok(output) = ProcessCommand::new("git")
+        .args(["describe", "--tags", "--always"])
+        .output()
+    {
+        if output.status.success() {
+            let git_tag = String::from_utf8(output.stdout).unwrap().trim().to_string();
+            let clean_tag = git_tag.strip_prefix('v').unwrap_or(&git_tag);
+            assert_eq!(VERSION, clean_tag);
+        }
+    }
+}
+
+#[test]
+fn version_flag_prints_modeltap_with_version() {
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_modeltap"))
+        .arg("--version")
+        .output()
+        .expect("failed to execute modeltap");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        stdout.trim(),
+        format!("modeltap {}", modeltap::cli::VERSION)
+    );
+
+    let output_short = ProcessCommand::new(env!("CARGO_BIN_EXE_modeltap"))
+        .arg("-V")
+        .output()
+        .expect("failed to execute modeltap");
+    assert!(output_short.status.success());
+    let stdout_short = String::from_utf8(output_short.stdout).unwrap();
+    assert_eq!(
+        stdout_short.trim(),
+        format!("modeltap {}", modeltap::cli::VERSION)
+    );
+}

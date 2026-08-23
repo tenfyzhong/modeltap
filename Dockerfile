@@ -2,7 +2,11 @@ FROM rust:1.85-bookworm AS builder
 
 WORKDIR /app
 
+ARG MODELTAP_VERSION
+ENV MODELTAP_VERSION=${MODELTAP_VERSION}
+
 COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
 COPY src ./src
 COPY benches ./benches
 RUN cargo build --release --locked

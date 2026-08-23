@@ -81,6 +81,8 @@ jobs:
           context: .
           push: true
           platforms: ${{ matrix.platform }}
+          build-args: |
+            MODELTAP_VERSION=${{ needs.resolve-tags.outputs.release }}
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/modeltap:${{ needs.resolve-tags.outputs.image }}-${{ matrix.architecture }}
           cache-from: type=gha,scope=modeltap-${{ matrix.architecture }}
           cache-to: type=gha,mode=max,scope=modeltap-${{ matrix.architecture }}
@@ -135,6 +137,8 @@ jobs:
         uses: dtolnay/rust-toolchain@1.85
 
       - name: Build release binary
+        env:
+          MODELTAP_VERSION: ${{ needs.resolve-tags.outputs.release }}
         run: cargo build --locked --release --target "${{ matrix.target }}"
 
       - name: Package release binary
@@ -192,8 +196,10 @@ jobs:
 
           formula.sub!(/^  url ".*"$/, %(  url "#{source_url}")) or abort("Formula URL not found")
           formula.sub!(/^  sha256 ".*"$/, %(  sha256 "#{source_sha256}")) or abort("Formula SHA-256 not found")
+          unless formula.include?('ENV["MODELTAP_VERSION"]')
+            formula.sub!(/def install\n/, "def install\n    ENV[\"MODELTAP_VERSION\"] = version.to_s\n")
+          end
           File.write(formula_path, formula)
-          RUBY
 
       - name: Set up Homebrew tap
         run: |
@@ -315,8 +321,10 @@ jobs:
 
           formula.sub!(/^  url ".*"$/, %(  url "#{source_url}")) or abort("Formula URL not found")
           formula.sub!(/^  sha256 ".*"$/, %(  sha256 "#{source_sha256}")) or abort("Formula SHA-256 not found")
+          unless formula.include?('ENV["MODELTAP_VERSION"]')
+            formula.sub!(/def install\n/, "def install\n    ENV[\"MODELTAP_VERSION\"] = version.to_s\n")
+          end
           File.write(formula_path, formula)
-          RUBY
 
       - name: Add bottle metadata to formula
         run: |

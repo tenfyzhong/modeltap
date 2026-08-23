@@ -10,6 +10,23 @@ fn docker_image_builds_the_real_modeltap_sources() {
 }
 
 #[test]
+fn docker_image_includes_build_script_and_version_arg() {
+    let dockerfile = include_str!("../Dockerfile");
+
+    assert!(dockerfile.contains("COPY build.rs ./"));
+    assert!(dockerfile.contains("ARG MODELTAP_VERSION"));
+    assert!(dockerfile.contains("ENV MODELTAP_VERSION"));
+}
+
+#[test]
+fn release_workflow_passes_release_version_to_builds() {
+    let workflow = include_str!("../.github/workflows/release.yml");
+
+    assert!(workflow.contains("MODELTAP_VERSION: ${{ needs.resolve-tags.outputs.release }}"));
+    assert!(workflow.contains("MODELTAP_VERSION=${{ needs.resolve-tags.outputs.release }}"));
+}
+
+#[test]
 fn compose_uses_a_user_provided_config_yaml_file() {
     let compose = include_str!("../docker-compose.yml");
 
