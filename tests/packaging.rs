@@ -23,10 +23,15 @@ fn docker_image_does_not_require_git_metadata_or_build_scripts() {
 #[test]
 fn release_workflow_sets_cargo_version_from_workflow_tag() {
     let workflow = include_str!("../.github/workflows/release.yml");
+    let set_version_script = include_str!("../.github/scripts/set-version.py");
 
     assert!(workflow.contains("version=$image_tag") || workflow.contains("version=${image_tag}"));
-    assert!(workflow.contains("RELEASE_VERSION: ${{ needs.resolve-tags.outputs.version }}"));
+    assert!(workflow.contains(
+        "python3 .github/scripts/set-version.py \"${{ needs.resolve-tags.outputs.version }}\""
+    ));
     assert!(!workflow.contains("fetch-depth: 0"));
+    assert!(set_version_script.contains("Cargo.toml"));
+    assert!(set_version_script.contains("Cargo.lock"));
 }
 
 #[test]
