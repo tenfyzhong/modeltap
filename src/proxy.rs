@@ -5,7 +5,7 @@ use crate::mitm::MitmAuthority;
 use crate::pricing::PriceBook;
 use crate::telemetry::Telemetry;
 use crate::usage::{
-    AutoStreamUsageParser, CursorUsageParser, WebSocketUsageParser, auto_parse_json,
+    AutoStreamUsageParser, CursorUsageParser, DirectJsonUsageParser, WebSocketUsageParser,
     permessage_deflate_server_no_context_takeover,
 };
 use bytes::Bytes;
@@ -361,17 +361,22 @@ async fn forward_mitm_request(
                     return Ok(response.map(|body| body.map_err(box_error).boxed()));
                 }
             }
-            let mut parser = observer
+            let stream_parser = observer
                 .clone()
                 .filter(|_| is_sse)
-                .map(|observer| (AutoStreamUsageParser::new(), observer));
+                .map(|observer| Arc::new(Mutex::new((AutoStreamUsageParser::new(), observer))));
             let cursor_observer = is_cursor_connect.then_some(observer.clone()).flatten();
-            let direct_observer = (!is_sse && !is_cursor_connect && is_json)
-                .then_some(observer.clone())
+            let direct_json_parser = (!is_sse && !is_cursor_connect && is_json)
+                .then(|| {
+                    observer.clone().map(|observer| {
+                        Arc::new(Mutex::new((DirectJsonUsageParser::new(), observer)))
+                    })
+                })
                 .flatten();
             let completion_observer = observer.clone();
+            let completion_stream_parser = stream_parser.clone();
+            let completion_direct_json_parser = direct_json_parser.clone();
             let response_processing_observer = observer.clone();
-            let mut direct_parse_attempted = false;
             Ok(response
                 .map(move |body| {
                     body.map_frame(move |frame| {
@@ -384,14 +389,17 @@ async fn forward_mitm_request(
                                 content = %body_preview(data, BODY_PREVIEW_LIMIT),
                                 "processing response body chunk"
                             );
-                            if let (Some((stream, observer)), Some(data)) =
-                                (parser.as_mut(), frame.data_ref())
+                            if let (Some(stream), Some(data)) =
+                                (stream_parser.as_ref(), frame.data_ref())
                             {
-                                if let Some((_protocol, usage)) = stream.push(data) {
-                                    observer.record(
-                                        usage.model.as_deref().unwrap_or("unknown"),
-                                        &usage.tokens,
-                                    );
+                                if let Ok(mut lock) = stream.lock() {
+                                    let (parser, observer) = &mut *lock;
+                                    if let Some((_protocol, usage)) = parser.push(data) {
+                                        observer.record(
+                                            usage.model.as_deref().unwrap_or("unknown"),
+                                            &usage.tokens,
+                                        );
+                                    }
                                 }
                             } else if let (Some(parser), Some(observer), Some(data)) = (
                                 cursor_usage.as_ref(),
@@ -409,12 +417,12 @@ async fn forward_mitm_request(
                                         }
                                     }
                                 }
-                            } else if let (Some(observer), Some(data)) =
-                                (direct_observer.as_ref(), frame.data_ref())
+                            } else if let (Some(json_parser), Some(data)) =
+                                (direct_json_parser.as_ref(), frame.data_ref())
                             {
-                                if should_parse_direct_json_usage(direct_parse_attempted, data) {
-                                    direct_parse_attempted = true;
-                                    if let Some((_protocol, usage)) = auto_parse_json(data) {
+                                if let Ok(mut lock) = json_parser.lock() {
+                                    let (parser, observer) = &mut *lock;
+                                    if let Some((_protocol, usage)) = parser.push(data) {
                                         observer.record(
                                             usage.model.as_deref().unwrap_or("unknown"),
                                             &usage.tokens,
@@ -439,6 +447,8 @@ async fn forward_mitm_request(
                     MeasuredBody {
                         inner: body,
                         observer: completion_observer,
+                        stream_parser: completion_stream_parser,
+                        direct_json_parser: completion_direct_json_parser,
                         started: request_started,
                     }
                     .boxed()
@@ -457,6 +467,8 @@ async fn forward_mitm_request(
 struct MeasuredBody {
     inner: ProxyBody,
     observer: Option<UsageObserver>,
+    stream_parser: Option<Arc<Mutex<(AutoStreamUsageParser, UsageObserver)>>>,
+    direct_json_parser: Option<Arc<Mutex<(DirectJsonUsageParser, UsageObserver)>>>,
     started: Instant,
 }
 
@@ -468,12 +480,38 @@ impl hyper::body::Body for MeasuredBody {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
-        Pin::new(&mut self.inner).poll_frame(cx)
+        let poll = Pin::new(&mut self.inner).poll_frame(cx);
+        if let Poll::Ready(None) = &poll {
+            self.finish_usage();
+        }
+        poll
+    }
+}
+
+impl MeasuredBody {
+    fn finish_usage(&mut self) {
+        if let Some(stream) = self.stream_parser.take() {
+            if let Ok(mut lock) = stream.lock() {
+                let (parser, observer) = &mut *lock;
+                if let Some((_protocol, usage)) = parser.finish() {
+                    observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                }
+            }
+        }
+        if let Some(json) = self.direct_json_parser.take() {
+            if let Ok(mut lock) = json.lock() {
+                let (parser, observer) = &mut *lock;
+                if let Some((_protocol, usage)) = parser.finish() {
+                    observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                }
+            }
+        }
     }
 }
 
 impl Drop for MeasuredBody {
     fn drop(&mut self) {
+        self.finish_usage();
         if let Some(observer) = self.observer.as_ref() {
             observer.telemetry.record_processing_duration(
                 &observer.site,
@@ -580,6 +618,11 @@ where
         loop {
             let read = upstream_read.read(&mut buffer).await?;
             if read == 0 {
+                if let Some((parser, observer)) = parser.as_mut() {
+                    if let Some((_protocol, usage)) = parser.finish() {
+                        observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                    }
+                }
                 return client_write.shutdown().await;
             }
             let data = &buffer[..read];

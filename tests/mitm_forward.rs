@@ -297,3 +297,82 @@ async fn connect_mitm_forwards_through_configured_cascading_proxy() {
     proxy.await.unwrap();
     upstream.await.unwrap();
 }
+#[tokio::test]
+async fn mitm_forwards_chunked_json_and_completes_usage() {
+    let upstream_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_address = upstream_listener.local_addr().unwrap();
+    let upstream = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        loop {
+            let mut byte = [0_u8; 1];
+            stream.read_exact(&mut byte).await.unwrap();
+            request.push(byte[0]);
+            if request.ends_with(b"\r\n\r\n") {
+                break;
+            }
+        }
+        stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n").await.unwrap();
+        // Send part 1 of json
+        let part1 = br#"{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"hello"}}],"#;
+        stream
+            .write_all(format!("{:X}\r\n", part1.len()).as_bytes())
+            .await
+            .unwrap();
+        stream.write_all(part1).await.unwrap();
+        stream.write_all(b"\r\n").await.unwrap();
+
+        // Send part 2 of json with usage
+        let part2 = br#""usage":{"prompt_tokens":100,"completion_tokens":25,"total_tokens":125}}"#;
+        stream
+            .write_all(format!("{:X}\r\n", part2.len()).as_bytes())
+            .await
+            .unwrap();
+        stream.write_all(part2).await.unwrap();
+        stream.write_all(b"\r\n").await.unwrap();
+
+        // Send end chunk
+        stream.write_all(b"0\r\n\r\n").await.unwrap();
+    });
+
+    let authority = MitmAuthority::generate("modeltap test root").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mitm_address = listener.local_addr().unwrap();
+    let server_config = authority.server_config_for("api.openai.com").unwrap();
+    let forwarder = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let stream = TlsAcceptor::from(Arc::new(server_config))
+            .accept(stream)
+            .await
+            .unwrap();
+        serve_mitm_connection(
+            stream,
+            format!("http://{upstream_address}").parse().unwrap(),
+            EgressConnector::direct(),
+            None,
+        )
+        .await
+        .unwrap();
+    });
+
+    let mut roots = RootCertStore::empty();
+    roots.add(authority.root_certificate()).unwrap();
+    let client_config = ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let mut client = TlsConnector::from(Arc::new(client_config))
+        .connect(
+            ServerName::try_from("api.openai.com").unwrap(),
+            TcpStream::connect(mitm_address).await.unwrap(),
+        )
+        .await
+        .unwrap();
+    client.write_all(b"POST /v1/chat/completions HTTP/1.1\r\nHost: api.openai.com\r\nConnection: close\r\n\r\n").await.unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).await.unwrap();
+    let response = String::from_utf8_lossy(&response);
+    assert!(response.contains("200 OK"));
+    assert!(response.contains("\"usage\""));
+    forwarder.await.unwrap();
+    upstream.await.unwrap();
+}
