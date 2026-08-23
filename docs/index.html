@@ -14,6 +14,7 @@
     a { color: #4f8cff; } pre { background: #8882; padding: 1rem; overflow-x: auto; border-radius: .5rem; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .note { border-left: 4px solid #4f8cff; background: #4f8cff18; padding: .75rem 1rem; }
+    img { max-width: 100%; height: auto; border-radius: .5rem; border: 1px solid #8884; margin: .75rem 0 1.25rem; display: block; }
   </style>
 </head>
 <body>
@@ -278,12 +279,24 @@ sudo systemctl enable --now alloy</code></pre>
 
   <h3>2. Create Grafana Cloud credentials</h3>
   <ol>
-    <li>Open your stack in the Grafana Cloud Portal, find the <strong>Prometheus</strong> card, and select <strong>Details</strong>.</li>
-    <li>Copy the remote-write URL ending in <code>/api/prom/push</code> and the numeric username/instance ID.</li>
-    <li>Open <strong>Access Policies</strong>, create a stack-scoped policy with only <code>metrics:write</code>, then add a token. Copy the token when it is shown; it is the remote-write password.</li>
+    <li>
+      <p>Open the <a href="https://grafana.com/">Grafana Cloud Portal</a>, navigate to <strong>Manage your Grafana Cloud stack</strong>, and click <strong>Launch</strong> to open your Grafana instance.</p>
+      <img src="https://tenfy.cn/picture/modeltap-grafana-cloud-launch.webp" alt="Launch Grafana instance in Grafana Cloud Portal" loading="lazy">
+    </li>
+    <li>
+      <p>In the Grafana navigation sidebar, navigate to <strong>Connections</strong> &rarr; <strong>Data sources</strong>, and search for <code>prometheus</code>. Select your stack's default Prometheus data source (e.g. <code>grafanacloud-*-prom</code>).</p>
+      <img src="https://tenfy.cn/picture/modeltap-grafana-cloud-datasource-prometheus.webp" alt="Search Prometheus under Connections -> Data sources" loading="lazy">
+    </li>
+    <li>
+      <p>Under <strong>Connection</strong>, copy the <strong>Prometheus server URL</strong> to use as <code>AGENT_USAGE_PROMETHEUS_URL</code> in Alloy's <code>config.env</code>. Under <strong>Authentication</strong>, copy the <strong>User</strong> (numeric ID) to use as <code>AGENT_USAGE_PROMETHEUS_USERNAME</code> in Alloy's <code>config.env</code>.</p>
+      <img src="https://tenfy.cn/picture/modeltap-grafana-cloud-prometheus-connection-user.webp" alt="Copy Prometheus server URL and User ID" loading="lazy">
+    </li>
+    <li>
+      <p>In the Grafana Cloud Portal left sidebar, click <strong>Access Policies</strong> (under <em>SECURITY</em>). Create a new policy with write permissions or reuse an existing policy with <code>set:alloy-data-write</code> scope, then click <strong>Add token</strong> to create a token. Copy the token to use as <code>AGENT_USAGE_PROMETHEUS_PASSWORD</code> in Alloy's <code>config.env</code>.</p>
+      <img src="https://tenfy.cn/picture/modeltap-grafana-cloud-access-policies-token.webp" alt="Create Access Policy with write permissions and generate a Token" loading="lazy">
+    </li>
   </ol>
-  <div class="note">Use the numeric Prometheus username, not your Grafana login. Keep the access policy token out of <code>config.alloy</code>, shell history, source control, and screenshots. Give it an expiration date and rotate it before it expires.</div>
-
+  <div class="note">Use the numeric Prometheus User ID, not your Grafana login username. Keep the access policy token out of <code>config.alloy</code>, shell history, source control, and screenshots. Give it an expiration date and rotate it before it expires.</div>
   <h3>3. Configure the credentials</h3>
   <p>On macOS, add the values to <code>$(brew --prefix)/etc/alloy/config.env</code>. Homebrew's Alloy service loads this file:</p>
   <pre><code>export AGENT_USAGE_PROMETHEUS_URL="https://prometheus-REGION.grafana.net/api/prom/push"
