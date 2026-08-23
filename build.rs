@@ -1,7 +1,6 @@
 use std::process::Command;
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=MODELTAP_VERSION");
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/tags");
     println!("cargo:rerun-if-changed=.git/packed-refs");
@@ -12,13 +11,6 @@ fn main() {
 }
 
 fn resolve_version() -> String {
-    if let Ok(version) = std::env::var("MODELTAP_VERSION") {
-        let trimmed = version.trim();
-        if !trimmed.is_empty() {
-            return clean_version(trimmed);
-        }
-    }
-
     if let Some(git_version) = version_from_git() {
         return git_version;
     }
