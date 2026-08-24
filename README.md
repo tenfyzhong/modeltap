@@ -33,76 +33,254 @@ Think of it as a purpose-built `mitmproxy` for AI model usage: it focuses on
 tokens, estimated cost, agent identity, and OpenTelemetry rather than general
 HTTP inspection.
 
-## Quick start
-
-From a source checkout, install the CLI and create the local CA once. Keep the
-private key secret and install the generated certificate in every client trust
-store that will use ModelTap:
-
-```shell
-cargo install --path .
-mkdir -p certs
-modeltap ca-init \
-  --cert certs/modeltap-ca-cert.pem \
-  --key certs/modeltap-ca-key.pem
-cp config.sample.yaml config.yaml
-modeltap validate --config config.yaml
-modeltap run --config config.yaml
-```
-
-Before starting the proxy, open `config.yaml` and set the telemetry endpoint,
-egress route, and pricing rules for your environment. The bundled configuration
-uses a sample `privoxy` egress route; set `egress.default: direct` if you do not
-use an upstream proxy. `modeltap validate --config <CONFIG>` checks YAML,
-site/egress validation, and pricing rules without binding a listener or reading
-certificate files.
-
-After the proxy starts, configure your agent to use `http://127.0.0.1:2080`.
-The client configuration below includes a working Node.js and oh-my-pi example.
-
-### What you get
+## What you get
 
 - Token totals and estimated cost, broken down by agent CLI, provider site, model, and token type.
 - A bundled [Grafana dashboard](grafana/modeltap-dashboard.json) with filters for agent, site, and model.
 - Standard OTLP/HTTP metrics for Grafana Alloy, Grafana Cloud, and compatible backends.
 - Streaming-friendly inspection for HTTP/1.1, HTTP/2, SSE, and WebSocket traffic.
 
-Shell completions are included in `completions/`. Load the appropriate file
-with `source completions/modeltap.bash`, `source completions/_modeltap`, or
-`source completions/modeltap.fish` for Bash, Zsh, or Fish respectively.
+## Quick start
+
+Install ModelTap and create the local root CA once. Keep the private key secret and install the generated root certificate in your operating system or client trust store:
+
+### macOS / Linux
+
+```shell
+# 1. Install via Homebrew (automatically generates config.yaml and CA certificates in $(brew --prefix)/etc/modeltap/)
+brew install tenfyzhong/tap/modeltap
+
+# 2. Trust the root CA certificate in your OS trust store
+# macOS:
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+  "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
+# Linux:
+sudo cp "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" /usr/local/share/ca-certificates/modeltap-ca-cert.crt
+sudo update-ca-certificates
+
+# 3. Validate configuration
+modeltap validate --config "$(brew --prefix)/etc/modeltap/config.yaml"
+
+# 4. Run ModelTap (interactive or background service)
+modeltap run --config "$(brew --prefix)/etc/modeltap/config.yaml"
+# or start in background:
+brew services start tenfyzhong/tap/modeltap
+```
+
+### Windows (PowerShell)
+
+```powershell
+# 1. Install from source or download the prebuilt binary from Releases
+cargo install --path .
+
+# 2. Initialize local root CA
+New-Item -ItemType Directory -Force -Path certs
+modeltap ca-init `
+  --cert certs\modeltap-ca-cert.pem `
+  --key certs\modeltap-ca-key.pem
+
+# 3. Trust the root CA certificate in Windows Certificate Store
+Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
+
+# 4. Copy sample configuration and validate
+Copy-Item config.sample.yaml config.yaml
+modeltap validate --config config.yaml
+
+# 5. Run ModelTap
+modeltap run --config config.yaml
+```
+
+Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment (edit `$(brew --prefix)/etc/modeltap/config.yaml` on macOS/Linux or `config.yaml` on Windows). The bundled configuration uses a sample `privoxy` egress route; set `egress.default: direct` if you do not use an upstream proxy. `modeltap validate --config <CONFIG>` checks YAML, site/egress validation, and pricing rules without binding a listener or reading certificate files.
+
+Shell completions are included in `completions/` (and installed automatically by Homebrew on macOS/Linux). For manual shells, load `source completions/modeltap.bash`, `source completions/_modeltap`, `source completions/modeltap.fish`, or `. completions/modeltap.ps1` for Bash, Zsh, Fish, or PowerShell respectively.
+
+### Installing and trusting the local root CA
+
+To allow TLS interception without certificate verification errors:
+
+- **macOS**: Import the generated CA certificate into the System keychain with Keychain Access or `security`:
+  ```shell
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+    "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
+  ```
+
+- **Linux**: Copy the CA certificate to `/usr/local/share/ca-certificates/modeltap-ca-cert.crt` and update CA certificates:
+  ```shell
+  sudo cp "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" /usr/local/share/ca-certificates/modeltap-ca-cert.crt
+  sudo update-ca-certificates
+  ```
+
+- **Windows**: Import `certs\modeltap-ca-cert.pem` into the Current User Trusted Root Certification Authorities store:
+  ```powershell
+  Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
+  ```
+  Or using `certutil` from Command Prompt:
+  ```cmd
+  certutil -addstore -user Root certs\modeltap-ca-cert.pem
+  ```
+  Rust-based tools (like `codex`) and Windows system applications query the Windows Certificate Store automatically.
 
 ### Client configuration
 
-#### Node.js & Agent CLI clients
+After the proxy starts, configure your agent to use `http://127.0.0.1:2080`.
 
-Node.js uses its own CA bundle and may not trust a locally installed ModelTap
-root CA. Before starting a Node.js client such as oh-my-pi, point
-`NODE_EXTRA_CA_CERTS` at the ModelTap CA certificate. Use an absolute path and
-restart the client (including any background daemon) after setting it:
+#### Node.js & Agent CLI clients (oh-my-pi, Claude Code)
 
+Node.js uses its own bundled CA store and does not read system root stores by default. Point `NODE_EXTRA_CA_CERTS` at the ModelTap CA certificate (using an absolute path) before starting your agent:
+
+**macOS / Linux (Bash / Zsh)**:
 ```shell
-export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
+export NODE_EXTRA_CA_CERTS="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
 export HTTP_PROXY=http://127.0.0.1:2080
 export HTTPS_PROXY=http://127.0.0.1:2080
 export PI_PROXY=http://127.0.0.1:2080
 omp
 ```
 
-`PI_PROXY` routes all oh-my-pi providers through ModelTap. Provider-specific
-variables override it. For example, use `PI_PROXY_CURSOR` when Cursor needs a
-different proxy endpoint:
+**macOS / Linux (Fish)**:
+```shell
+set -x NODE_EXTRA_CA_CERTS (brew --prefix)/etc/modeltap/certs/ca-cert.pem
+set -x HTTP_PROXY http://127.0.0.1:2080
+set -x HTTPS_PROXY http://127.0.0.1:2080
+set -x PI_PROXY http://127.0.0.1:2080
+omp
+```
+
+**Windows (PowerShell)**:
+```powershell
+$env:NODE_EXTRA_CA_CERTS = "$pwd\certs\modeltap-ca-cert.pem"
+$env:HTTP_PROXY = "http://127.0.0.1:2080"
+$env:HTTPS_PROXY = "http://127.0.0.1:2080"
+$env:PI_PROXY = "http://127.0.0.1:2080"
+omp
+```
+
+**Windows (Command Prompt)**:
+```cmd
+set NODE_EXTRA_CA_CERTS=%cd%\certs\modeltap-ca-cert.pem
+set HTTP_PROXY=http://127.0.0.1:2080
+set HTTPS_PROXY=http://127.0.0.1:2080
+set PI_PROXY=http://127.0.0.1:2080
+omp
+```
+
+`PI_PROXY` routes all oh-my-pi providers through ModelTap. Provider-specific variables override it. For example, use `PI_PROXY_CURSOR` when Cursor needs a different proxy endpoint:
 
 ```shell
 export PI_PROXY_CURSOR=http://127.0.0.1:2080
 ```
 
-oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting
-`PI_PROXY` (or its `PI_PROXY_CURSOR` override) ensures Cursor models, including
-Grok, reach ModelTap. For fish, use `set -x PI_PROXY http://127.0.0.1:2080`
-(and set `NODE_EXTRA_CA_CERTS` similarly).
-Without this setting, MITM requests can fail certificate verification and some
-clients may misleadingly report that their Google API key or OAuth credential is
-missing.
+oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting `PI_PROXY` (or its `PI_PROXY_CURSOR` override) ensures Cursor models, including Grok, reach ModelTap. Without this setting, MITM requests can fail certificate verification and some clients may misleadingly report that their Google API key or OAuth credential is missing.
+
+#### Python & other CLI tools
+
+- **Python (Requests / HTTPX / OpenAI SDK / Anthropic SDK)**:
+  - macOS / Linux (Bash): `export REQUESTS_CA_BUNDLE="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" SSL_CERT_FILE="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"`
+  - Windows (PowerShell): `$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"`
+- **Git**:
+  - macOS / Linux (Bash): `git config --global http.sslCAInfo "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"`
+  - Windows (PowerShell): `git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"`
+
+### Running as a background service
+
+To run ModelTap persistently in the background on startup, configure it as an operating system service:
+
+#### macOS & Linux (Homebrew services)
+
+If installed via Homebrew, manage ModelTap directly with `brew services`:
+
+```shell
+# Start ModelTap service in background
+brew services start tenfyzhong/tap/modeltap
+
+# Check service status
+brew services info tenfyzhong/tap/modeltap
+
+# Restart or stop the service
+brew services restart tenfyzhong/tap/modeltap
+brew services stop tenfyzhong/tap/modeltap
+```
+
+#### Linux (systemd)
+
+For standalone Linux installations without Homebrew, create `/etc/systemd/system/modeltap.service`:
+
+```ini
+[Unit]
+Description=ModelTap AI Traffic Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=modeltap
+WorkingDirectory=/opt/modeltap
+ExecStart=/opt/modeltap/modeltap run --config /opt/modeltap/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```shell
+sudo systemctl daemon-reload
+sudo systemctl enable --now modeltap
+```
+
+#### Windows Service (NSSM)
+
+[NSSM (Non-Sucking Service Manager)](https://nssm.cc/) is the simplest way to run ModelTap as a Windows service with automatic restart on crash:
+
+```powershell
+# 1. Install NSSM (via Scoop or Winget)
+winget install NSSM.NSSM
+# or: scoop install nssm
+
+# 2. Install and configure ModelTap as a service (Run PowerShell as Administrator)
+nssm install ModelTap "C:\modeltap\modeltap.exe" "run --config C:\modeltap\config.yaml"
+nssm set ModelTap AppDirectory "C:\modeltap"
+nssm set ModelTap Start SERVICE_AUTO_START
+nssm set ModelTap AppStdout "C:\modeltap\logs\service-stdout.log"
+nssm set ModelTap AppStderr "C:\modeltap\logs\service-stderr.log"
+
+# 3. Start the service
+nssm start ModelTap
+
+# 4. Service management
+nssm status ModelTap
+nssm restart ModelTap
+nssm stop ModelTap
+```
+
+#### Windows Service (WinSW)
+
+Alternatively, download [WinSW](https://github.com/winsw/winsw/releases) (e.g. `WinSW-x64.exe`), place it as `modeltap-service.exe` next to `modeltap.exe`, and create `modeltap-service.xml`:
+
+```xml
+<service>
+  <id>ModelTap</id>
+  <name>ModelTap AI Proxy</name>
+  <description>ModelTap AI traffic monitor and cost proxy</description>
+  <executable>C:\modeltap\modeltap.exe</executable>
+  <arguments>run --config C:\modeltap\config.yaml</arguments>
+  <workingdirectory>C:\modeltap</workingdirectory>
+  <logpath>C:\modeltap\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>
+```
+
+Install and start the service:
+
+```powershell
+.\modeltap-service.exe install
+.\modeltap-service.exe start
+```
 
 ## Configuration
 
@@ -232,14 +410,15 @@ stream disconnected before completion: invalid peer certificate: BadSignature
 2. Re-install and trust the active ModelTap root CA certificate:
 
    ```shell
-   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <path-to-ca-cert.pem>
+   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+     "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
    ```
 
 3. Verify that the serial number and public key match between the Keychain and your CA certificate file:
 
    ```shell
    security find-certificate -c "modeltap local CA" -p | openssl x509 -noout -serial -pubkey
-   openssl x509 -in <path-to-ca-cert.pem> -noout -serial -pubkey
+   openssl x509 -in "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" -noout -serial -pubkey
    ```
 
 ### Codex fails with `invalid peer certificate: UnknownIssuer`
@@ -258,14 +437,15 @@ stream disconnected before completion: invalid peer certificate: UnknownIssuer
 - **System-wide trust (recommended)**: Run with `sudo` to write to the admin trust settings:
 
   ```shell
-  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <path-to-ca-cert.pem>
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+    "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
   ```
 
 - **User-level trust**: Run without `-d` (and without `sudo`), which triggers a macOS password / Touch ID prompt to authorize user trust:
 
   ```shell
-  security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db <path-to-ca-cert.pem>
-  ```
+  security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db \
+    "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
 
 - **Verify trust settings**: Confirm that `modeltap local CA` appears in trust settings:
 

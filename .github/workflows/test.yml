@@ -8,8 +8,12 @@ permissions:
 
 jobs:
   test:
-    name: Rust tests
-    runs-on: ubuntu-latest
+    name: Rust tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -20,6 +24,7 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
+        if: runner.os == 'Linux'
         run: cargo fmt --check
 
       - name: Run tests

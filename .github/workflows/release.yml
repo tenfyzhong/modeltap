@@ -127,6 +127,8 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out source
@@ -143,18 +145,26 @@ jobs:
         run: cargo build --locked --release --target "${{ matrix.target }}"
 
       - name: Package release binary
+        shell: bash
         env:
           RELEASE_TAG: ${{ needs.resolve-tags.outputs.release }}
           TARGET: ${{ matrix.target }}
         run: |
           mkdir -p dist
-          tar -C "target/$TARGET/release" -czf "dist/modeltap-${RELEASE_TAG}-${TARGET}.tar.gz" modeltap
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            tar -C "target/$TARGET/release" -czf "dist/modeltap-${RELEASE_TAG}-${TARGET}.tar.gz" modeltap.exe
+            tar -C "target/$TARGET/release" -a -cf "dist/modeltap-${RELEASE_TAG}-${TARGET}.zip" modeltap.exe
+          else
+            tar -C "target/$TARGET/release" -czf "dist/modeltap-${RELEASE_TAG}-${TARGET}.tar.gz" modeltap
+          fi
 
       - name: Upload release binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: modeltap-${{ matrix.target }}
-          path: dist/modeltap-*.tar.gz
+          path: |
+            dist/modeltap-*.tar.gz
+            dist/modeltap-*.zip
           if-no-files-found: error
 
   build-homebrew-bottle:
@@ -269,7 +279,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.resolve-tags.outputs.release }}
-        run: gh release upload "$RELEASE_TAG" dist/*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+        run: gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
 
   create-formula-bump-pull-request:
     needs:

@@ -53,19 +53,44 @@ pub async fn run(
     telemetry: Option<Arc<Telemetry>>,
     prices: Arc<PriceBook>,
 ) -> Result<(), ProxyError> {
+    run_with_shutdown(config, mitm_authority, telemetry, prices, async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await
+}
+
+pub async fn run_with_shutdown<F>(
+    config: Arc<Config>,
+    mitm_authority: Option<Arc<MitmAuthority>>,
+    telemetry: Option<Arc<Telemetry>>,
+    prices: Arc<PriceBook>,
+    shutdown: F,
+) -> Result<(), ProxyError>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
     let listener = tokio::net::TcpListener::bind(&config.proxy.listen).await?;
+    tokio::pin!(shutdown);
     loop {
-        let (stream, _) = listener.accept().await?;
-        let config = config.clone();
-        let mitm_authority = mitm_authority.clone();
-        let telemetry = telemetry.clone();
-        let prices = prices.clone();
-        tokio::spawn(async move {
-            let _ =
-                handle_connection_with_telemetry(stream, config, mitm_authority, telemetry, prices)
-                    .await;
-        });
+        tokio::select! {
+            result = listener.accept() => {
+                let (stream, _) = result?;
+                let config = config.clone();
+                let mitm_authority = mitm_authority.clone();
+                let telemetry = telemetry.clone();
+                let prices = prices.clone();
+                tokio::spawn(async move {
+                    let _ =
+                        handle_connection_with_telemetry(stream, config, mitm_authority, telemetry, prices)
+                            .await;
+                });
+            }
+            _ = &mut shutdown => {
+                break;
+            }
+        }
     }
+    Ok(())
 }
 
 pub async fn handle_connection(client: TcpStream, config: Arc<Config>) -> Result<(), ProxyError> {
