@@ -25,7 +25,7 @@
   <p>Know exactly how many tokens and how much money your AI coding agents use.</p>
   <p>ModelTap is a transparent, network-level observability proxy for Codex, Claude Code, Gemini CLI, oh-my-pi, and other AI clients. It measures the API traffic that actually reaches model providers and exports token usage and estimated cost to Grafana or any OTLP/HTTP-compatible backend.</p>
   <p><strong>No SDK. No agent patches. No vendor-specific telemetry integration.</strong></p>
-  <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.png" alt="ModelTap Grafana dashboard showing QPS, token usage, estimated cost, and agent breakdowns" loading="eager">
+  <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.jpg" alt="ModelTap Grafana dashboard showing QPS, token usage, estimated cost, and agent breakdowns" loading="eager">
   <p>ModelTap recognizes OpenAI, Anthropic, Gemini, and DeepSeek API usage; detects common agent CLIs automatically; supports streaming SSE and WebSocket traffic; and can forward directly or through HTTP, HTTPS, and SOCKS5 egress proxies.</p>
   <nav><a href="#why">Why ModelTap?</a><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#node">Node.js</a><a href="#config">Configuration</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
 
@@ -390,7 +390,7 @@ docker compose logs -f modeltap</code></pre>
   <p>The included Compose configuration binds the proxy to host port 2080, mounts both CA files read-only, and uses <code>host.docker.internal</code> to access GOST on port 1081 and Alloy on port 4318 from Docker Desktop on macOS. Install the CA certificate in each client trust store; do not install or distribute the private key. In production, use Docker Secrets, Kubernetes Secrets, or a secret manager for the CA key.</p>
 
   <h2 id="grafana">Grafana Cloud</h2>
-  <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.png" alt="ModelTap Grafana dashboard with agent, site, and model filters" loading="lazy">
+  <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.jpg" alt="ModelTap Grafana dashboard with agent, site, and model filters" loading="lazy">
   <p>After <code>ai_proxy_requests</code> appears in Explore, open <strong>Dashboards → New → Import</strong>, upload <code>grafana/modeltap-dashboard.json</code>, and select the same Prometheus data source. Click <strong>Import</strong> to create the ModelTap dashboard. Re-import with the same dashboard UID to overwrite an older copy after the JSON changes.</p>
   <p>The dashboard reads cumulative counters so the first exported usage sample is visible immediately. Its variables are ordered <code>Agent CLI</code>, <code>Site</code>, and <code>Model</code>, with each selection filtering the following ones. <code>test_client</code> and <code>benchmark_client</code> are excluded from both the variable and every panel query. The second row shows QPS by model; cumulative token and cost charts group data by <code>agent_cli</code>, <code>site</code>, <code>model</code>, and <code>type</code>. Selected-range totals are visible above the default-collapsed <strong>Performance</strong> row, which contains local processing-duration charts. Token values abbreviate large values as K, M, or B. Cost is displayed in USD.</p>
 
