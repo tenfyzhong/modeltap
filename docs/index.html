@@ -27,7 +27,7 @@
   <p><strong>No SDK. No agent patches. No vendor-specific telemetry integration.</strong></p>
   <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.jpg" alt="ModelTap Grafana dashboard showing QPS, token usage, estimated cost, and agent breakdowns" loading="eager">
   <p>ModelTap recognizes OpenAI, Anthropic, Gemini, and DeepSeek API usage; detects common agent CLIs automatically; supports streaming SSE and WebSocket traffic; and can forward directly or through HTTP, HTTPS, and SOCKS5 egress proxies.</p>
-  <nav><a href="#why">Why ModelTap?</a><a href="#what-you-get">What you get</a><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#node">Client setup</a><a href="#service">Service</a><a href="#config">Configuration</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
+  <nav><a href="#why">Why ModelTap?</a><a href="#what-you-get">What you get</a><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#node">Client setup</a><a href="#service">Service</a><a href="#config">Configuration</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#faq">FAQ</a><a href="#security">Security</a></nav>
 
   <h2 id="why">Why ModelTap?</h2>
   <p>Native agent telemetry and log parsers can be useful, but neither provides the same provider-independent view of what left the machine. ModelTap observes the model API boundary instead.</p>
@@ -558,6 +558,55 @@ docker compose logs -f modeltap</code></pre>
   <p>Pushing a Git tag, or manually dispatching the workflow for an existing tag, publishes Docker images and creates or updates the matching GitHub Release. Configure repository secrets <code>DOCKERHUB_USERNAME</code> and <code>DOCKERHUB_TOKEN</code>. The workflow builds separate <code>linux/amd64</code> and <code>linux/arm64</code> images with <code>-amd64</code> and <code>-arm64</code> suffixes, then publishes multi-architecture manifests for the version (without a leading <code>v</code>) and <code>latest</code>.</p>
   <p>The GitHub Release also contains the Homebrew bottle and compressed standalone binaries: <code>modeltap-&lt;tag&gt;-aarch64-apple-darwin.tar.gz</code>, <code>modeltap-&lt;tag&gt;-x86_64-unknown-linux-gnu.tar.gz</code>, <code>modeltap-&lt;tag&gt;-aarch64-unknown-linux-gnu.tar.gz</code>, and <code>modeltap-&lt;tag&gt;-x86_64-pc-windows-msvc.zip</code> (also available as <code>.tar.gz</code>). A tag whose version cannot be used as a Docker tag fails before publishing.</p>
   <p>The release workflow builds a Homebrew bottle and uploads it to the matching GitHub Release. After that upload succeeds, it opens or updates a Formula bump PR for <code>modeltap</code> in the <code>tenfyzhong/tap</code> tap. Set the <code>HOMEBREW_TAP_TOKEN</code> repository secret to a GitHub token that can create pull requests in <code>tenfyzhong/homebrew-tap</code>. Create <code>Formula/modeltap.rb</code> in that tap before publishing the first tag.</p>
+
+  <h2 id="faq">Frequently Asked Questions (FAQ)</h2>
+
+  <h3>Codex fails with <code>invalid peer certificate: BadSignature</code></h3>
+  <p><strong>Symptom</strong>: Running <code>codex</code> (or other Rust-based CLI tools) through ModelTap outputs:</p>
+  <pre><code>Falling back from WebSockets to HTTPS transport.
+stream disconnected before completion: invalid peer certificate: BadSignature</code></pre>
+  <p><strong>Cause</strong>: A stale <code>modeltap local CA</code> root certificate exists in your system or login keychain with a different public/private key pair than the active CA private key configured in ModelTap. <code>codex</code> loads the old root certificate from Keychain, and TLS verification fails because the signature on the dynamically generated leaf certificate was produced by the new private key.</p>
+  <p><strong>Resolution</strong>:</p>
+  <ol>
+    <li>
+      <p>Remove the old certificate from the macOS Keychain:</p>
+      <pre><code>security delete-certificate -c "modeltap local CA" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
+sudo security delete-certificate -c "modeltap local CA" /Library/Keychains/System.keychain 2>/dev/null || true</code></pre>
+    </li>
+    <li>
+      <p>Re-install and trust the active ModelTap root CA certificate:</p>
+      <pre><code>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+  "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"</code></pre>
+    </li>
+    <li>
+      <p>Verify that the serial number and public key match between the Keychain and your CA certificate file:</p>
+      <pre><code>security find-certificate -c "modeltap local CA" -p | openssl x509 -noout -serial -pubkey
+openssl x509 -in "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" -noout -serial -pubkey</code></pre>
+    </li>
+  </ol>
+
+  <h3>Codex fails with <code>invalid peer certificate: UnknownIssuer</code></h3>
+  <p><strong>Symptom</strong>: Running <code>codex</code> outputs:</p>
+  <pre><code>Falling back from WebSockets to HTTPS transport.
+stream disconnected before completion: invalid peer certificate: UnknownIssuer</code></pre>
+  <p><strong>Cause</strong>: The ModelTap CA certificate is present in the keychain file, but lacks root trust policy settings (for example, <code>security add-trusted-cert -d</code> was executed without <code>sudo</code>, preventing macOS from writing the admin trust settings). Tools using <code>rustls-native-certs</code> only load root certificates configured with explicit trust settings.</p>
+  <p><strong>Resolution</strong>:</p>
+  <ul>
+    <li>
+      <p><strong>System-wide trust (recommended)</strong>: Run with <code>sudo</code> to write to the admin trust settings:</p>
+      <pre><code>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+  "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"</code></pre>
+    </li>
+    <li>
+      <p><strong>User-level trust</strong>: Run without <code>-d</code> (and without <code>sudo</code>), which triggers a macOS password / Touch ID prompt to authorize user trust:</p>
+      <pre><code>security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db \
+  "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"</code></pre>
+    </li>
+    <li>
+      <p><strong>Verify trust settings</strong>: Confirm that <code>modeltap local CA</code> appears in trust settings:</p>
+      <pre><code>security dump-trust-settings -d | grep -A 2 "modeltap local CA" || security dump-trust-settings | grep -A 2 "modeltap local CA"</code></pre>
+    </li>
+  </ul>
 
   <h2 id="security">Security</h2>
   <div class="note">Use TLS interception only for traffic you are authorized to inspect. It exposes request and response content to the proxy process.</div>
