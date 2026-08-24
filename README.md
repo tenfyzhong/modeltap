@@ -35,9 +35,9 @@ HTTP inspection.
 
 ## Quick start
 
-From a source checkout, install the CLI and create the local CA once. Keep the
-private key secret and install the generated certificate in every client trust
-store that will use ModelTap:
+From a source checkout or downloaded binary release, create the local root CA once. Keep the private key secret and install the generated root certificate in your operating system or client trust store:
+
+### macOS / Linux
 
 ```shell
 cargo install --path .
@@ -50,15 +50,22 @@ modeltap validate --config config.yaml
 modeltap run --config config.yaml
 ```
 
-Before starting the proxy, open `config.yaml` and set the telemetry endpoint,
-egress route, and pricing rules for your environment. The bundled configuration
-uses a sample `privoxy` egress route; set `egress.default: direct` if you do not
-use an upstream proxy. `modeltap validate --config <CONFIG>` checks YAML,
-site/egress validation, and pricing rules without binding a listener or reading
-certificate files.
+### Windows (PowerShell)
 
-After the proxy starts, configure your agent to use `http://127.0.0.1:2080`.
-The client configuration below includes a working Node.js and oh-my-pi example.
+```powershell
+cargo install --path .
+New-Item -ItemType Directory -Force -Path certs
+modeltap ca-init `
+  --cert certs\modeltap-ca-cert.pem `
+  --key certs\modeltap-ca-key.pem
+Copy-Item config.sample.yaml config.yaml
+modeltap validate --config config.yaml
+modeltap run --config config.yaml
+```
+
+Before starting the proxy, open `config.yaml` and set the telemetry endpoint, egress route, and pricing rules for your environment. The bundled configuration uses a sample `privoxy` egress route; set `egress.default: direct` if you do not use an upstream proxy. `modeltap validate --config <CONFIG>` checks YAML, site/egress validation, and pricing rules without binding a listener or reading certificate files.
+
+Shell completions are included in `completions/`. Load the appropriate file with `source completions/modeltap.bash`, `source completions/_modeltap`, `source completions/modeltap.fish`, or `. completions/modeltap.ps1` for Bash, Zsh, Fish, or PowerShell respectively.
 
 ### What you get
 
@@ -67,35 +74,34 @@ The client configuration below includes a working Node.js and oh-my-pi example.
 - Standard OTLP/HTTP metrics for Grafana Alloy, Grafana Cloud, and compatible backends.
 - Streaming-friendly inspection for HTTP/1.1, HTTP/2, SSE, and WebSocket traffic.
 
-Shell completions are included in `completions/`. Load the appropriate file
-with `source completions/modeltap.bash`, `source completions/_modeltap`,
-`source completions/modeltap.fish`, or `. completions/modeltap.ps1` for Bash,
-Zsh, Fish, or PowerShell respectively.
+### Installing and trusting the local root CA
 
-### Windows quick start & certificate trust
+To allow TLS interception without certificate verification errors:
 
-On Windows (PowerShell), generate the CA pair and register the root certificate in the Current User Trusted Root store:
+- **Windows**: Import `certs\modeltap-ca-cert.pem` into the Current User Trusted Root Certification Authorities store:
+  ```powershell
+  Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
+  ```
+  Or using `certutil` from Command Prompt:
+  ```cmd
+  certutil -addstore -user Root certs\modeltap-ca-cert.pem
+  ```
+  Rust-based tools (like `codex`) and Windows system applications query the Windows Certificate Store automatically.
 
-```powershell
-# 1. Initialize local CA certificate and private key
-.\modeltap.exe ca-init --cert certs\modeltap-ca-cert.pem --key certs\modeltap-ca-key.pem
+- **macOS**: Import `certs/modeltap-ca-cert.pem` into the System keychain with Keychain Access or `security`:
+  ```shell
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/modeltap-ca-cert.pem
+  ```
 
-# 2. Trust the root CA certificate in Windows Certificate Store
-Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
+- **Linux**: Copy `certs/modeltap-ca-cert.pem` to `/usr/local/share/ca-certificates/modeltap-ca-cert.crt` and run `sudo update-ca-certificates`.
 
-# 3. Validate and run
-Copy-Item config.sample.yaml config.yaml
-.\modeltap.exe validate --config config.yaml
-.\modeltap.exe run --config config.yaml
-```
 ### Client configuration
 
-#### Node.js & Agent CLI clients
+After the proxy starts, configure your agent to use `http://127.0.0.1:2080`.
 
-Node.js uses its own CA bundle and may not trust a locally installed ModelTap
-root CA. Before starting a Node.js client such as oh-my-pi, point
-`NODE_EXTRA_CA_CERTS` at the ModelTap CA certificate. Use an absolute path and
-restart the client (including any background daemon) after setting it:
+#### Node.js & Agent CLI clients (oh-my-pi, Claude Code)
+
+Node.js uses its own bundled CA store and does not read system root stores by default. Point `NODE_EXTRA_CA_CERTS` at the ModelTap CA certificate (using an absolute path) before starting your agent:
 
 **macOS / Linux (Bash / Zsh)**:
 ```shell
@@ -103,6 +109,15 @@ export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
 export HTTP_PROXY=http://127.0.0.1:2080
 export HTTPS_PROXY=http://127.0.0.1:2080
 export PI_PROXY=http://127.0.0.1:2080
+omp
+```
+
+**macOS / Linux (Fish)**:
+```shell
+set -x NODE_EXTRA_CA_CERTS (pwd)/certs/modeltap-ca-cert.pem
+set -x HTTP_PROXY http://127.0.0.1:2080
+set -x HTTPS_PROXY http://127.0.0.1:2080
+set -x PI_PROXY http://127.0.0.1:2080
 omp
 ```
 
@@ -124,21 +139,22 @@ set PI_PROXY=http://127.0.0.1:2080
 omp
 ```
 
-`PI_PROXY` routes all oh-my-pi providers through ModelTap. Provider-specific
-variables override it. For example, use `PI_PROXY_CURSOR` when Cursor needs a
-different proxy endpoint:
+`PI_PROXY` routes all oh-my-pi providers through ModelTap. Provider-specific variables override it. For example, use `PI_PROXY_CURSOR` when Cursor needs a different proxy endpoint:
 
 ```shell
 export PI_PROXY_CURSOR=http://127.0.0.1:2080
 ```
 
-oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting
-`PI_PROXY` (or its `PI_PROXY_CURSOR` override) ensures Cursor models, including
-Grok, reach ModelTap. For fish, use `set -x PI_PROXY http://127.0.0.1:2080`
-(and set `NODE_EXTRA_CA_CERTS` similarly).
-Without this setting, MITM requests can fail certificate verification and some
-clients may misleadingly report that their Google API key or OAuth credential is
-missing.
+oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting `PI_PROXY` (or its `PI_PROXY_CURSOR` override) ensures Cursor models, including Grok, reach ModelTap. Without this setting, MITM requests can fail certificate verification and some clients may misleadingly report that their Google API key or OAuth credential is missing.
+
+#### Python & other CLI tools
+
+- **Python (Requests / HTTPX / OpenAI SDK / Anthropic SDK)**:
+  - PowerShell: `$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"`
+  - Bash: `export REQUESTS_CA_BUNDLE="$(pwd)/certs/modeltap-ca-cert.pem" SSL_CERT_FILE="$(pwd)/certs/modeltap-ca-cert.pem"`
+- **Git**:
+  - PowerShell: `git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"`
+  - Bash: `git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"`
 
 ## Configuration
 

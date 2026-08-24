@@ -27,7 +27,7 @@
   <p><strong>No SDK. No agent patches. No vendor-specific telemetry integration.</strong></p>
   <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.jpg" alt="ModelTap Grafana dashboard showing QPS, token usage, estimated cost, and agent breakdowns" loading="eager">
   <p>ModelTap recognizes OpenAI, Anthropic, Gemini, and DeepSeek API usage; detects common agent CLIs automatically; supports streaming SSE and WebSocket traffic; and can forward directly or through HTTP, HTTPS, and SOCKS5 egress proxies.</p>
-  <nav><a href="#why">Why ModelTap?</a><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#windows">Windows</a><a href="#certificate">Certificates</a><a href="#node">Node.js</a><a href="#config">Configuration</a><a href="#service">Service</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
+  <nav><a href="#why">Why ModelTap?</a><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#node">Client setup</a><a href="#config">Configuration</a><a href="#service">Service</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
 
   <h2 id="why">Why ModelTap?</h2>
   <p>Native agent telemetry and log parsers can be useful, but neither provides the same provider-independent view of what left the machine. ModelTap observes the model API boundary instead.</p>
@@ -74,7 +74,9 @@ Grafana Cloud Prometheus ──► Explore and ModelTap dashboard</code></pre>
   <p>ModelTap emits the cumulative counters <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>, plus proxy and telemetry latency histograms. Usage counter labels are <code>site</code>, <code>model</code>, <code>agent_cli</code>, token <code>type</code>, <code>price_period</code>, and <code>currency</code> where applicable. The client response path does not wait for remote write: the OTLP SDK batches exports in the background. In Grafana, select data in the order <code>Agent CLI → Site → Model</code>.</p>
 
   <h2 id="start">Quick start</h2>
-  <p>From a source checkout, install the CLI and create the local CA once. Keep the private key secret and install the generated certificate in every client trust store that will use ModelTap:</p>
+  <p>From a source checkout or downloaded binary release, create the local root CA once. Keep the private key secret and install the generated certificate in your operating system or client trust store:</p>
+
+  <h3>macOS / Linux</h3>
   <pre><code>cargo install --path .
 mkdir -p certs
 modeltap ca-init \
@@ -83,50 +85,88 @@ modeltap ca-init \
 cp config.sample.yaml config.yaml
 modeltap validate --config config.yaml
 modeltap run --config config.yaml</code></pre>
+
+  <h3>Windows (PowerShell)</h3>
+  <pre><code>cargo install --path .
+New-Item -ItemType Directory -Force -Path certs
+modeltap ca-init `
+  --cert certs\modeltap-ca-cert.pem `
+  --key certs\modeltap-ca-key.pem
+Copy-Item config.sample.yaml config.yaml
+modeltap validate --config config.yaml
+modeltap run --config config.yaml</code></pre>
+
   <p>Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment. The bundled configuration uses a sample <code>privoxy</code> egress route; set <code>egress.default: direct</code> if you do not use an upstream proxy. Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code>; source <code>modeltap.bash</code>, <code>_modeltap</code>, <code>modeltap.fish</code>, or <code>modeltap.ps1</code> for Bash, Zsh, Fish, or PowerShell.</p>
   <p>Set your browser, CLI, or SDK HTTP proxy to <code>http://127.0.0.1:2080</code>. Every host configured under <code>sites</code> is decrypted; other CONNECT tunnels remain transparent.</p>
   <p>Each <code>hosts</code> entry is a domain root and includes all subdomains at a DNS label boundary. For example, <code>googleapis.com</code> includes <code>generativelanguage.googleapis.com</code>, but does not match <code>notgoogleapis.com</code>. Overlapping domain trees across sites are rejected.</p>
   <p>The inbound proxy does not require client authentication, including on a non-loopback listener such as <code>0.0.0.0:2080</code>. Protect non-loopback listeners with a host firewall, private network, or another trusted access-control layer to avoid running an open proxy.</p>
 
-  <h2 id="windows">Windows setup and certificate trust</h2>
-  <p>On Windows (PowerShell), generate the CA pair and import the root certificate into the <strong>Current User Trusted Root Certification Authorities</strong> store:</p>
-  <pre><code># 1. Initialize local CA certificate and private key
-.\modeltap.exe ca-init --cert certs\modeltap-ca-cert.pem --key certs\modeltap-ca-key.pem
+  <h2 id="certificate">Install and trust the local CA</h2>
+  <p>Install the generated root CA in your operating system trust store so that client applications and CLI tools trust the TLS MITM certificate:</p>
 
-# 2. Trust the root CA certificate in Windows Certificate Store
+  <ul>
+    <li>
+      <p><strong>Windows</strong>: Import <code>certs\modeltap-ca-cert.pem</code> into the Current User Trusted Root Certification Authorities store:</p>
+      <pre><code># PowerShell
 Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
 
-# 3. Validate and run
-Copy-Item config.sample.yaml config.yaml
-.\modeltap.exe validate --config config.yaml
-.\modeltap.exe run --config config.yaml</code></pre>
-  <p>To configure CLI and SDK agents in PowerShell:</p>
-  <pre><code>$env:NODE_EXTRA_CA_CERTS = "$pwd\certs\modeltap-ca-cert.pem"
-$env:HTTP_PROXY = "http://127.0.0.1:2080"
-$env:HTTPS_PROXY = "http://127.0.0.1:2080"
-$env:PI_PROXY = "http://127.0.0.1:2080"
-omp</code></pre>
-  <p>In Command Prompt (CMD):</p>
-  <pre><code>set NODE_EXTRA_CA_CERTS=%cd%\certs\modeltap-ca-cert.pem
-set HTTP_PROXY=http://127.0.0.1:2080
-set HTTPS_PROXY=http://127.0.0.1:2080
-set PI_PROXY=http://127.0.0.1:2080
-omp</code></pre>
-  <h2 id="certificate">Install the local CA</h2>
-  <p>On macOS, import <code>certs/modeltap-ca-cert.pem</code> into the <strong>System</strong> keychain with Keychain Access and set it to <strong>Always Trust</strong>. Never import, copy, or share <code>modeltap-ca-key.pem</code>.</p>
-  <pre><code>curl --proxy http://127.0.0.1:2080 \
-  --cacert certs/modeltap-ca-cert.pem \
-  https://api.openai.com/v1/models</code></pre>
-  <p>A 401 response confirms that interception and forwarding work; it only means that no API key was supplied.</p>
+# Or Command Prompt (CMD)
+certutil -addstore -user Root certs\modeltap-ca-cert.pem</code></pre>
+      <p>Rust-based CLI tools (such as <code>codex</code>) and Windows system applications query the Windows Certificate Store automatically.</p>
+    </li>
+    <li>
+      <p><strong>macOS</strong>: Import <code>certs/modeltap-ca-cert.pem</code> into the System keychain with Keychain Access or <code>security</code>:</p>
+      <pre><code>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/modeltap-ca-cert.pem</code></pre>
+    </li>
+    <li>
+      <p><strong>Linux</strong>: Copy <code>certs/modeltap-ca-cert.pem</code> to <code>/usr/local/share/ca-certificates/modeltap-ca-cert.crt</code> and run <code>sudo update-ca-certificates</code>.</p>
+    </li>
+  </ul>
 
-  <h2 id="node">Node.js clients and oh-my-pi</h2>
-  <p>Node.js uses its own CA bundle and may not trust a locally installed ModelTap root CA. Set <code>NODE_EXTRA_CA_CERTS</code> to the absolute path of the ModelTap CA, then restart the client or background daemon:</p>
+  <h2 id="node">Client and agent configuration</h2>
+  <p>Node.js uses its own CA bundle and does not trust locally installed root CAs by default. Point <code>NODE_EXTRA_CA_CERTS</code> at the absolute path of the ModelTap CA, then restart your agent or background daemon:</p>
+
+  <h3>macOS / Linux (Bash / Zsh)</h3>
   <pre><code>export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
 export HTTP_PROXY=http://127.0.0.1:2080
 export HTTPS_PROXY=http://127.0.0.1:2080
 export PI_PROXY=http://127.0.0.1:2080
 omp</code></pre>
-  <p><code>PI_PROXY</code> routes all oh-my-pi providers through ModelTap. A provider-specific variable overrides it; use <code>PI_PROXY_CURSOR</code> when Cursor needs another proxy endpoint. oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent traffic, so <code>PI_PROXY</code> or <code>PI_PROXY_CURSOR</code> is required for Cursor models, including Grok, to reach ModelTap. In Fish, use <code>set -x PI_PROXY http://127.0.0.1:2080</code> and set <code>NODE_EXTRA_CA_CERTS</code> similarly.</p>
+
+  <h3>macOS / Linux (Fish)</h3>
+  <pre><code>set -x NODE_EXTRA_CA_CERTS (pwd)/certs/modeltap-ca-cert.pem
+set -x HTTP_PROXY http://127.0.0.1:2080
+set -x HTTPS_PROXY http://127.0.0.1:2080
+set -x PI_PROXY http://127.0.0.1:2080
+omp</code></pre>
+
+  <h3>Windows (PowerShell)</h3>
+  <pre><code>$env:NODE_EXTRA_CA_CERTS = "$pwd\certs\modeltap-ca-cert.pem"
+$env:HTTP_PROXY = "http://127.0.0.1:2080"
+$env:HTTPS_PROXY = "http://127.0.0.1:2080"
+$env:PI_PROXY = "http://127.0.0.1:2080"
+omp</code></pre>
+
+  <h3>Windows (Command Prompt)</h3>
+  <pre><code>set NODE_EXTRA_CA_CERTS=%cd%\certs\modeltap-ca-cert.pem
+set HTTP_PROXY=http://127.0.0.1:2080
+set HTTPS_PROXY=http://127.0.0.1:2080
+set PI_PROXY=http://127.0.0.1:2080
+omp</code></pre>
+
+  <p><code>PI_PROXY</code> routes all oh-my-pi providers through ModelTap. A provider-specific variable overrides it; use <code>PI_PROXY_CURSOR</code> when Cursor needs another proxy endpoint. oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent traffic, so <code>PI_PROXY</code> or <code>PI_PROXY_CURSOR</code> is required for Cursor models, including Grok, to reach ModelTap.</p>
+
+  <h3>Python & other CLI tools</h3>
+  <ul>
+    <li><strong>Python (Requests / HTTPX / OpenAI SDK / Anthropic SDK)</strong>:
+      <br>PowerShell: <code>$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"</code>
+      <br>Bash: <code>export REQUESTS_CA_BUNDLE="$(pwd)/certs/modeltap-ca-cert.pem" SSL_CERT_FILE="$(pwd)/certs/modeltap-ca-cert.pem"</code>
+    </li>
+    <li><strong>Git</strong>:
+      <br>PowerShell: <code>git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"</code>
+      <br>Bash: <code>git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"</code>
+    </li>
+  </ul>
 
   <h2 id="config">Configuration</h2>
   <p>Copy <code>config.sample.yaml</code> to <code>config.yaml</code> before first use and adjust its certificate paths, telemetry endpoint, egress proxy, sites, and pricing rules. The sample is a complete local configuration. OpenAI, Anthropic, and Gemini use Privoxy at <code>127.0.0.1:8118</code>; DeepSeek explicitly uses the direct egress and never uses Privoxy.</p>
