@@ -366,3 +366,43 @@ fn dashboard_has_realtime_token_and_cost_breakdowns_by_agent_cli_site_model_and_
         "{{agent_cli}} / {{site}} / {{model}} / {{type}}"
     );
 }
+
+#[test]
+fn dashboard_has_summary_panels_matching_the_dashboard_preview() {
+    let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
+        .expect("dashboard JSON is valid");
+    let panels = dashboard["panels"].as_array().unwrap();
+
+    let top_agent = panels
+        .iter()
+        .find(|panel| panel["title"] == "Top agent by estimated cost (USD)")
+        .expect("top agent panel exists");
+    assert_eq!(top_agent["type"], "stat");
+    assert_eq!(top_agent["fieldConfig"]["defaults"]["unit"], "currencyUSD");
+    assert_eq!(
+        top_agent["targets"][0]["expr"],
+        "topk(1, sum by (agent_cli) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range])))"
+    );
+
+    let tokens_by_agent = panels
+        .iter()
+        .find(|panel| panel["title"] == "Tokens by agent CLI in selected range")
+        .expect("token-by-agent bar gauge exists");
+    assert_eq!(tokens_by_agent["type"], "bargauge");
+    assert_eq!(tokens_by_agent["fieldConfig"]["defaults"]["unit"], "short");
+    assert_eq!(
+        tokens_by_agent["targets"][0]["expr"],
+        "sum by (agent_cli) (increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__range]))"
+    );
+
+    let cost_by_model = panels
+        .iter()
+        .find(|panel| panel["title"] == "Estimated cost by model in selected range (USD)")
+        .expect("cost-by-model bar gauge exists");
+    assert_eq!(cost_by_model["type"], "bargauge");
+    assert_eq!(cost_by_model["fieldConfig"]["defaults"]["unit"], "currencyUSD");
+    assert_eq!(
+        cost_by_model["targets"][0]["expr"],
+        "topk(10, sum by (model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range])))"
+    );
+}
