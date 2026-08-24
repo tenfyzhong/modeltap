@@ -42,12 +42,12 @@ HTTP inspection.
 
 ## Quick start
 
-From a source checkout or downloaded binary release, create the local root CA once. Keep the private key secret and install the generated root certificate in your operating system or client trust store:
+Install ModelTap and create the local root CA once. Keep the private key secret and install the generated root certificate in your operating system or client trust store:
 
 ### macOS / Linux
 
 ```shell
-cargo install --path .
+brew install tenfyzhong/tap/modeltap
 mkdir -p certs
 modeltap ca-init \
   --cert certs/modeltap-ca-cert.pem \
@@ -60,6 +60,7 @@ modeltap run --config config.yaml
 ### Windows (PowerShell)
 
 ```powershell
+# Install from source or download the prebuilt binary from Releases
 cargo install --path .
 New-Item -ItemType Directory -Force -Path certs
 modeltap ca-init `
@@ -78,6 +79,17 @@ Shell completions are included in `completions/`. Load the appropriate file with
 
 To allow TLS interception without certificate verification errors:
 
+- **macOS**: Import `certs/modeltap-ca-cert.pem` into the System keychain with Keychain Access or `security`:
+  ```shell
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/modeltap-ca-cert.pem
+  ```
+
+- **Linux**: Copy `certs/modeltap-ca-cert.pem` to `/usr/local/share/ca-certificates/modeltap-ca-cert.crt` and update CA certificates:
+  ```shell
+  sudo cp certs/modeltap-ca-cert.pem /usr/local/share/ca-certificates/modeltap-ca-cert.crt
+  sudo update-ca-certificates
+  ```
+
 - **Windows**: Import `certs\modeltap-ca-cert.pem` into the Current User Trusted Root Certification Authorities store:
   ```powershell
   Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
@@ -87,13 +99,6 @@ To allow TLS interception without certificate verification errors:
   certutil -addstore -user Root certs\modeltap-ca-cert.pem
   ```
   Rust-based tools (like `codex`) and Windows system applications query the Windows Certificate Store automatically.
-
-- **macOS**: Import `certs/modeltap-ca-cert.pem` into the System keychain with Keychain Access or `security`:
-  ```shell
-  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/modeltap-ca-cert.pem
-  ```
-
-- **Linux**: Copy `certs/modeltap-ca-cert.pem` to `/usr/local/share/ca-certificates/modeltap-ca-cert.crt` and run `sudo update-ca-certificates`.
 
 ### Client configuration
 
@@ -150,15 +155,60 @@ oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting `P
 #### Python & other CLI tools
 
 - **Python (Requests / HTTPX / OpenAI SDK / Anthropic SDK)**:
-  - PowerShell: `$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"`
-  - Bash: `export REQUESTS_CA_BUNDLE="$(pwd)/certs/modeltap-ca-cert.pem" SSL_CERT_FILE="$(pwd)/certs/modeltap-ca-cert.pem"`
+  - macOS / Linux (Bash): `export REQUESTS_CA_BUNDLE="$(pwd)/certs/modeltap-ca-cert.pem" SSL_CERT_FILE="$(pwd)/certs/modeltap-ca-cert.pem"`
+  - Windows (PowerShell): `$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"`
 - **Git**:
-  - PowerShell: `git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"`
-  - Bash: `git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"`
+  - macOS / Linux (Bash): `git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"`
+  - Windows (PowerShell): `git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"`
 
 ### Running as a background service
 
 To run ModelTap persistently in the background on startup, configure it as an operating system service:
+
+#### macOS & Linux (Homebrew services)
+
+If installed via Homebrew, manage ModelTap directly with `brew services`:
+
+```shell
+# Start ModelTap service in background
+brew services start tenfyzhong/tap/modeltap
+
+# Check service status
+brew services info tenfyzhong/tap/modeltap
+
+# Restart or stop the service
+brew services restart tenfyzhong/tap/modeltap
+brew services stop tenfyzhong/tap/modeltap
+```
+
+#### Linux (systemd)
+
+For standalone Linux installations without Homebrew, create `/etc/systemd/system/modeltap.service`:
+
+```ini
+[Unit]
+Description=ModelTap AI Traffic Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=modeltap
+WorkingDirectory=/opt/modeltap
+ExecStart=/opt/modeltap/modeltap run --config /opt/modeltap/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```shell
+sudo systemctl daemon-reload
+sudo systemctl enable --now modeltap
+```
 
 #### Windows Service (NSSM)
 
@@ -210,71 +260,6 @@ Install and start the service:
 ```powershell
 .\modeltap-service.exe install
 .\modeltap-service.exe start
-```
-
-#### Linux (systemd)
-
-Create `/etc/systemd/system/modeltap.service`:
-
-```ini
-[Unit]
-Description=ModelTap AI Traffic Monitor
-After=network.target
-
-[Service]
-Type=simple
-User=modeltap
-WorkingDirectory=/opt/modeltap
-ExecStart=/opt/modeltap/modeltap run --config /opt/modeltap/config.yaml
-Restart=always
-RestartSec=5
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start the service:
-
-```shell
-sudo systemctl daemon-reload
-sudo systemctl enable --now modeltap
-```
-
-#### macOS (launchd)
-
-Create `~/Library/LaunchAgents/cn.tenfy.modeltap.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>cn.tenfy.modeltap</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/modeltap</string>
-        <string>run</string>
-        <string>--config</string>
-        <string>/usr/local/etc/modeltap/config.yaml</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/modeltap.stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/modeltap.stderr.log</string>
-</dict>
-</plist>
-```
-
-Load and start the agent:
-
-```shell
-launchctl load ~/Library/LaunchAgents/cn.tenfy.modeltap.plist
 ```
 
 ## Configuration

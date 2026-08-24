@@ -82,10 +82,10 @@ Grafana Cloud Prometheus ──► Explore and ModelTap dashboard</code></pre>
   <p>ModelTap emits the cumulative counters <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>, plus proxy and telemetry latency histograms. Usage counter labels are <code>site</code>, <code>model</code>, <code>agent_cli</code>, token <code>type</code>, <code>price_period</code>, and <code>currency</code> where applicable. The client response path does not wait for remote write: the OTLP SDK batches exports in the background. In Grafana, select data in the order <code>Agent CLI → Site → Model</code>.</p>
 
   <h2 id="start">Quick start</h2>
-  <p>From a source checkout or downloaded binary release, create the local root CA once. Keep the private key secret and install the generated certificate in your operating system or client trust store:</p>
+  <p>Install ModelTap and create the local root CA once. Keep the private key secret and install the generated certificate in your operating system or client trust store:</p>
 
   <h3>macOS / Linux</h3>
-  <pre><code>cargo install --path .
+  <pre><code>brew install tenfyzhong/tap/modeltap
 mkdir -p certs
 modeltap ca-init \
   --cert certs/modeltap-ca-cert.pem \
@@ -95,7 +95,8 @@ modeltap validate --config config.yaml
 modeltap run --config config.yaml</code></pre>
 
   <h3>Windows (PowerShell)</h3>
-  <pre><code>cargo install --path .
+  <pre><code># Install from source or download the prebuilt binary from Releases
+cargo install --path .
 New-Item -ItemType Directory -Force -Path certs
 modeltap ca-init `
   --cert certs\modeltap-ca-cert.pem `
@@ -114,6 +115,15 @@ modeltap run --config config.yaml</code></pre>
 
   <ul>
     <li>
+      <p><strong>macOS</strong>: Import <code>certs/modeltap-ca-cert.pem</code> into the System keychain with Keychain Access or <code>security</code>:</p>
+      <pre><code>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/modeltap-ca-cert.pem</code></pre>
+    </li>
+    <li>
+      <p><strong>Linux</strong>: Copy <code>certs/modeltap-ca-cert.pem</code> to <code>/usr/local/share/ca-certificates/modeltap-ca-cert.crt</code> and update CA certificates:</p>
+      <pre><code>sudo cp certs/modeltap-ca-cert.pem /usr/local/share/ca-certificates/modeltap-ca-cert.crt
+sudo update-ca-certificates</code></pre>
+    </li>
+    <li>
       <p><strong>Windows</strong>: Import <code>certs\modeltap-ca-cert.pem</code> into the Current User Trusted Root Certification Authorities store:</p>
       <pre><code># PowerShell
 Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
@@ -121,13 +131,6 @@ Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cer
 # Or Command Prompt (CMD)
 certutil -addstore -user Root certs\modeltap-ca-cert.pem</code></pre>
       <p>Rust-based CLI tools (such as <code>codex</code>) and Windows system applications query the Windows Certificate Store automatically.</p>
-    </li>
-    <li>
-      <p><strong>macOS</strong>: Import <code>certs/modeltap-ca-cert.pem</code> into the System keychain with Keychain Access or <code>security</code>:</p>
-      <pre><code>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/modeltap-ca-cert.pem</code></pre>
-    </li>
-    <li>
-      <p><strong>Linux</strong>: Copy <code>certs/modeltap-ca-cert.pem</code> to <code>/usr/local/share/ca-certificates/modeltap-ca-cert.crt</code> and run <code>sudo update-ca-certificates</code>.</p>
     </li>
   </ul>
 
@@ -167,51 +170,32 @@ omp</code></pre>
   <h3>Python & other CLI tools</h3>
   <ul>
     <li><strong>Python (Requests / HTTPX / OpenAI SDK / Anthropic SDK)</strong>:
-      <br>PowerShell: <code>$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"</code>
-      <br>Bash: <code>export REQUESTS_CA_BUNDLE="$(pwd)/certs/modeltap-ca-cert.pem" SSL_CERT_FILE="$(pwd)/certs/modeltap-ca-cert.pem"</code>
+      <br>macOS / Linux (Bash): <code>export REQUESTS_CA_BUNDLE="$(pwd)/certs/modeltap-ca-cert.pem" SSL_CERT_FILE="$(pwd)/certs/modeltap-ca-cert.pem"</code>
+      <br>Windows (PowerShell): <code>$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"</code>
     </li>
     <li><strong>Git</strong>:
-      <br>PowerShell: <code>git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"</code>
-      <br>Bash: <code>git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"</code>
+      <br>macOS / Linux (Bash): <code>git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"</code>
+      <br>Windows (PowerShell): <code>git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"</code>
     </li>
   </ul>
 
   <h3 id="service">Running as a background service</h3>
   <p>To run ModelTap persistently in the background on startup, configure it as an operating system service:</p>
 
-  <h4>Windows Service (NSSM)</h4>
-  <p><a href="https://nssm.cc/">NSSM (Non-Sucking Service Manager)</a> runs ModelTap as a Windows service with automatic restart on crash:</p>
-  <pre><code># 1. Install NSSM (Run PowerShell as Administrator)
-winget install NSSM.NSSM
+  <h4>macOS & Linux (Homebrew services)</h4>
+  <p>If installed via Homebrew, manage ModelTap directly with <code>brew services</code>:</p>
+  <pre><code># Start ModelTap service in background
+brew services start tenfyzhong/tap/modeltap
 
-# 2. Install and configure ModelTap service
-nssm install ModelTap "C:\modeltap\modeltap.exe" "run --config C:\modeltap\config.yaml"
-nssm set ModelTap AppDirectory "C:\modeltap"
-nssm set ModelTap Start SERVICE_AUTO_START
-nssm set ModelTap AppStdout "C:\modeltap\logs\service-stdout.log"
-nssm set ModelTap AppStderr "C:\modeltap\logs\service-stderr.log"
+# Check service status
+brew services info tenfyzhong/tap/modeltap
 
-# 3. Start the service
-nssm start ModelTap</code></pre>
-
-  <h4>Windows Service (WinSW)</h4>
-  <p>Alternatively, download <a href="https://github.com/winsw/winsw/releases">WinSW</a> (e.g. <code>WinSW-x64.exe</code>), place it as <code>modeltap-service.exe</code> next to <code>modeltap.exe</code>, and create <code>modeltap-service.xml</code>:</p>
-  <pre><code>&lt;service&gt;
-  &lt;id&gt;ModelTap&lt;/id&gt;
-  &lt;name&gt;ModelTap AI Proxy&lt;/name&gt;
-  &lt;description&gt;ModelTap AI traffic monitor and cost proxy&lt;/description&gt;
-  &lt;executable&gt;C:\modeltap\modeltap.exe&lt;/executable&gt;
-  &lt;arguments&gt;run --config C:\modeltap\config.yaml&lt;/arguments&gt;
-  &lt;workingdirectory&gt;C:\modeltap&lt;/workingdirectory&gt;
-  &lt;logpath&gt;C:\modeltap\logs&lt;/logpath&gt;
-  &lt;log mode="roll-by-size"&gt;
-    &lt;sizeThreshold&gt;10240&lt;/sizeThreshold&gt;
-    &lt;keepFiles&gt;5&lt;/keepFiles&gt;
-  &lt;/log&gt;
-&lt;/service&gt;</code></pre>
+# Restart or stop the service
+brew services restart tenfyzhong/tap/modeltap
+brew services stop tenfyzhong/tap/modeltap</code></pre>
 
   <h4>Linux (systemd)</h4>
-  <p>Create <code>/etc/systemd/system/modeltap.service</code>:</p>
+  <p>For standalone Linux installations without Homebrew, create <code>/etc/systemd/system/modeltap.service</code>:</p>
   <pre><code>[Unit]
 Description=ModelTap AI Traffic Monitor
 After=network.target
@@ -231,33 +215,44 @@ WantedBy=multi-user.target</code></pre>
   <pre><code>sudo systemctl daemon-reload
 sudo systemctl enable --now modeltap</code></pre>
 
-  <h4>macOS (launchd)</h4>
-  <p>Create <code>~/Library/LaunchAgents/cn.tenfy.modeltap.plist</code>:</p>
-  <pre><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
-&lt;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"&gt;
-&lt;plist version="1.0"&gt;
-&lt;dict&gt;
-    &lt;key&gt;Label&lt;/key&gt;
-    &lt;string&gt;cn.tenfy.modeltap&lt;/string&gt;
-    &lt;key&gt;ProgramArguments&lt;/key&gt;
-    &lt;array&gt;
-        &lt;string&gt;/usr/local/bin/modeltap&lt;/string&gt;
-        &lt;string&gt;run&lt;/string&gt;
-        &lt;string&gt;--config&lt;/string&gt;
-        &lt;string&gt;/usr/local/etc/modeltap/config.yaml&lt;/string&gt;
-    &lt;/array&gt;
-    &lt;key&gt;RunAtLoad&lt;/key&gt;
-    &lt;true/&gt;
-    &lt;key&gt;KeepAlive&lt;/key&gt;
-    &lt;true/&gt;
-    &lt;key&gt;StandardOutPath&lt;/key&gt;
-    &lt;string&gt;/tmp/modeltap.stdout.log&lt;/string&gt;
-    &lt;key&gt;StandardErrorPath&lt;/key&gt;
-    &lt;string&gt;/tmp/modeltap.stderr.log&lt;/string&gt;
-&lt;/dict&gt;
-&lt;/plist&gt;</code></pre>
-  <p>Load and start the agent:</p>
-  <pre><code>launchctl load ~/Library/LaunchAgents/cn.tenfy.modeltap.plist</code></pre>
+  <h4>Windows Service (NSSM)</h4>
+  <p><a href="https://nssm.cc/">NSSM (Non-Sucking Service Manager)</a> runs ModelTap as a Windows service with automatic restart on crash:</p>
+  <pre><code># 1. Install NSSM (Run PowerShell as Administrator)
+winget install NSSM.NSSM
+
+# 2. Install and configure ModelTap service
+nssm install ModelTap "C:\modeltap\modeltap.exe" "run --config C:\modeltap\config.yaml"
+nssm set ModelTap AppDirectory "C:\modeltap"
+nssm set ModelTap Start SERVICE_AUTO_START
+nssm set ModelTap AppStdout "C:\modeltap\logs\service-stdout.log"
+nssm set ModelTap AppStderr "C:\modeltap\logs\service-stderr.log"
+
+# 3. Start the service
+nssm start ModelTap
+
+# 4. Service management
+nssm status ModelTap
+nssm restart ModelTap
+nssm stop ModelTap</code></pre>
+
+  <h4>Windows Service (WinSW)</h4>
+  <p>Alternatively, download <a href="https://github.com/winsw/winsw/releases">WinSW</a> (e.g. <code>WinSW-x64.exe</code>), place it as <code>modeltap-service.exe</code> next to <code>modeltap.exe</code>, and create <code>modeltap-service.xml</code>:</p>
+  <pre><code>&lt;service&gt;
+  &lt;id&gt;ModelTap&lt;/id&gt;
+  &lt;name&gt;ModelTap AI Proxy&lt;/name&gt;
+  &lt;description&gt;ModelTap AI traffic monitor and cost proxy&lt;/description&gt;
+  &lt;executable&gt;C:\modeltap\modeltap.exe&lt;/executable&gt;
+  &lt;arguments&gt;run --config C:\modeltap\config.yaml&lt;/arguments&gt;
+  &lt;workingdirectory&gt;C:\modeltap&lt;/workingdirectory&gt;
+  &lt;logpath&gt;C:\modeltap\logs&lt;/logpath&gt;
+  &lt;log mode="roll-by-size"&gt;
+    &lt;sizeThreshold&gt;10240&lt;/sizeThreshold&gt;
+    &lt;keepFiles&gt;5&lt;/keepFiles&gt;
+  &lt;/log&gt;
+&lt;/service&gt;</code></pre>
+  <p>Install and start the service:</p>
+  <pre><code>.\modeltap-service.exe install
+.\modeltap-service.exe start</code></pre>
 
   <h2 id="config">Configuration</h2>
   <p>Copy <code>config.sample.yaml</code> to <code>config.yaml</code> before first use and adjust its certificate paths, telemetry endpoint, egress proxy, sites, and pricing rules. The sample is a complete local configuration. OpenAI, Anthropic, and Gemini use Privoxy at <code>127.0.0.1:8118</code>; DeepSeek explicitly uses the direct egress and never uses Privoxy.</p>
