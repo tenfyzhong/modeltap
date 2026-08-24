@@ -42,6 +42,8 @@ pub struct PriceRuleConfig {
     #[serde(default)]
     pub rates: Option<PriceRates>,
     #[serde(default)]
+    pub fast: Option<PriceRates>,
+    #[serde(default)]
     pub peak: Option<PriceRates>,
     #[serde(default)]
     pub off_peak: Option<PriceRates>,
@@ -219,8 +221,10 @@ struct CompiledRule {
     currency: String,
     peak: PriceRates,
     off_peak: PriceRates,
+    fast: Option<PriceRates>,
     peak_f64: FloatPriceRates,
     off_peak_f64: FloatPriceRates,
+    fast_f64: Option<FloatPriceRates>,
     schedule: PeakSchedule,
 }
 
@@ -288,8 +292,10 @@ impl PriceBook {
                     currency: rule.currency.clone(),
                     peak_f64: FloatPriceRates::from_rates(&peak),
                     off_peak_f64: FloatPriceRates::from_rates(&off_peak),
+                    fast_f64: rule.fast.as_ref().map(FloatPriceRates::from_rates),
                     peak,
                     off_peak,
+                    fast: rule.fast.clone(),
                     schedule,
                 })
             })
@@ -312,15 +318,7 @@ impl PriceBook {
         model: &str,
         instant: DateTime<Utc>,
     ) -> Option<ResolvedPrice<'_>> {
-        let rule = self
-            .rules
-            .iter()
-            .find(|rule| rule.site.as_deref() == Some(site) && rule.matcher.is_match(model))
-            .or_else(|| {
-                self.rules
-                    .iter()
-                    .find(|rule| rule.site.is_none() && rule.matcher.is_match(model))
-            })?;
+        let rule = self.matching_rule(site, model)?;
         let local = instant.with_timezone(&self.timezone);
         let period = rule.schedule.period_at(local);
         let (rates, float_rates) = match period {
@@ -333,6 +331,34 @@ impl PriceBook {
             rates,
             float_rates,
         })
+    }
+
+    pub fn lookup_fast(
+        &self,
+        site: &str,
+        model: &str,
+        instant: DateTime<Utc>,
+    ) -> Option<ResolvedPrice<'_>> {
+        let rule = self.matching_rule(site, model)?;
+        let (rates, float_rates) = rule.fast.as_ref().zip(rule.fast_f64.as_ref())?;
+        let local = instant.with_timezone(&self.timezone);
+        Some(ResolvedPrice {
+            period: rule.schedule.period_at(local),
+            currency: &rule.currency,
+            rates,
+            float_rates,
+        })
+    }
+
+    fn matching_rule(&self, site: &str, model: &str) -> Option<&CompiledRule> {
+        self.rules
+            .iter()
+            .find(|rule| rule.site.as_deref() == Some(site) && rule.matcher.is_match(model))
+            .or_else(|| {
+                self.rules
+                    .iter()
+                    .find(|rule| rule.site.is_none() && rule.matcher.is_match(model))
+            })
     }
 }
 

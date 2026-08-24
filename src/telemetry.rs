@@ -170,7 +170,14 @@ impl Telemetry {
         count_request: bool,
     ) {
         let started = std::time::Instant::now();
-        let price = prices.lookup(site, model, Utc::now());
+        let fast_mode =
+            billing.agent_cli == "codex" && billing.service_tier == Some(ServiceTier::Fast);
+        let now = Utc::now();
+        let fast_price = fast_mode
+            .then(|| prices.lookup_fast(site, model, now))
+            .flatten();
+        let uses_configured_fast_price = fast_price.is_some();
+        let price = fast_price.or_else(|| prices.lookup(site, model, now));
         let period = price.as_ref().map(|price| match price.period {
             PricePeriod::Peak => "peak",
             PricePeriod::OffPeak => "off_peak",
@@ -179,12 +186,12 @@ impl Telemetry {
             .as_ref()
             .map(|price| price.currency.to_owned())
             .unwrap_or_else(|| "unknown".to_owned());
-        let multiplier = price_multiplier(billing.agent_cli, billing.service_tier);
-        let billing_mode = if multiplier == FAST_MODE_PRICE_MULTIPLIER {
-            "fast"
+        let multiplier = if fast_mode && uses_configured_fast_price {
+            1.0
         } else {
-            "default"
+            price_multiplier(billing.agent_cli, billing.service_tier)
         };
+        let billing_mode = if fast_mode { "fast" } else { "default" };
         let base = [
             KeyValue::new("site", site.to_owned()),
             KeyValue::new("model", model.to_owned()),
