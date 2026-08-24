@@ -33,6 +33,13 @@ Think of it as a purpose-built `mitmproxy` for AI model usage: it focuses on
 tokens, estimated cost, agent identity, and OpenTelemetry rather than general
 HTTP inspection.
 
+## What you get
+
+- Token totals and estimated cost, broken down by agent CLI, provider site, model, and token type.
+- A bundled [Grafana dashboard](grafana/modeltap-dashboard.json) with filters for agent, site, and model.
+- Standard OTLP/HTTP metrics for Grafana Alloy, Grafana Cloud, and compatible backends.
+- Streaming-friendly inspection for HTTP/1.1, HTTP/2, SSE, and WebSocket traffic.
+
 ## Quick start
 
 From a source checkout or downloaded binary release, create the local root CA once. Keep the private key secret and install the generated root certificate in your operating system or client trust store:
@@ -66,13 +73,6 @@ modeltap run --config config.yaml
 Before starting the proxy, open `config.yaml` and set the telemetry endpoint, egress route, and pricing rules for your environment. The bundled configuration uses a sample `privoxy` egress route; set `egress.default: direct` if you do not use an upstream proxy. `modeltap validate --config <CONFIG>` checks YAML, site/egress validation, and pricing rules without binding a listener or reading certificate files.
 
 Shell completions are included in `completions/`. Load the appropriate file with `source completions/modeltap.bash`, `source completions/_modeltap`, `source completions/modeltap.fish`, or `. completions/modeltap.ps1` for Bash, Zsh, Fish, or PowerShell respectively.
-
-### What you get
-
-- Token totals and estimated cost, broken down by agent CLI, provider site, model, and token type.
-- A bundled [Grafana dashboard](grafana/modeltap-dashboard.json) with filters for agent, site, and model.
-- Standard OTLP/HTTP metrics for Grafana Alloy, Grafana Cloud, and compatible backends.
-- Streaming-friendly inspection for HTTP/1.1, HTTP/2, SSE, and WebSocket traffic.
 
 ### Installing and trusting the local root CA
 
@@ -155,6 +155,127 @@ oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting `P
 - **Git**:
   - PowerShell: `git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"`
   - Bash: `git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"`
+
+### Running as a background service
+
+To run ModelTap persistently in the background on startup, configure it as an operating system service:
+
+#### Windows Service (NSSM)
+
+[NSSM (Non-Sucking Service Manager)](https://nssm.cc/) is the simplest way to run ModelTap as a Windows service with automatic restart on crash:
+
+```powershell
+# 1. Install NSSM (via Scoop or Winget)
+winget install NSSM.NSSM
+# or: scoop install nssm
+
+# 2. Install and configure ModelTap as a service (Run PowerShell as Administrator)
+nssm install ModelTap "C:\modeltap\modeltap.exe" "run --config C:\modeltap\config.yaml"
+nssm set ModelTap AppDirectory "C:\modeltap"
+nssm set ModelTap Start SERVICE_AUTO_START
+nssm set ModelTap AppStdout "C:\modeltap\logs\service-stdout.log"
+nssm set ModelTap AppStderr "C:\modeltap\logs\service-stderr.log"
+
+# 3. Start the service
+nssm start ModelTap
+
+# 4. Service management
+nssm status ModelTap
+nssm restart ModelTap
+nssm stop ModelTap
+```
+
+#### Windows Service (WinSW)
+
+Alternatively, download [WinSW](https://github.com/winsw/winsw/releases) (e.g. `WinSW-x64.exe`), place it as `modeltap-service.exe` next to `modeltap.exe`, and create `modeltap-service.xml`:
+
+```xml
+<service>
+  <id>ModelTap</id>
+  <name>ModelTap AI Proxy</name>
+  <description>ModelTap AI traffic monitor and cost proxy</description>
+  <executable>C:\modeltap\modeltap.exe</executable>
+  <arguments>run --config C:\modeltap\config.yaml</arguments>
+  <workingdirectory>C:\modeltap</workingdirectory>
+  <logpath>C:\modeltap\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>
+```
+
+Install and start the service:
+
+```powershell
+.\modeltap-service.exe install
+.\modeltap-service.exe start
+```
+
+#### Linux (systemd)
+
+Create `/etc/systemd/system/modeltap.service`:
+
+```ini
+[Unit]
+Description=ModelTap AI Traffic Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=modeltap
+WorkingDirectory=/opt/modeltap
+ExecStart=/opt/modeltap/modeltap run --config /opt/modeltap/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```shell
+sudo systemctl daemon-reload
+sudo systemctl enable --now modeltap
+```
+
+#### macOS (launchd)
+
+Create `~/Library/LaunchAgents/cn.tenfy.modeltap.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>cn.tenfy.modeltap</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/modeltap</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>/usr/local/etc/modeltap/config.yaml</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/modeltap.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/modeltap.stderr.log</string>
+</dict>
+</plist>
+```
+
+Load and start the agent:
+
+```shell
+launchctl load ~/Library/LaunchAgents/cn.tenfy.modeltap.plist
+```
 
 ## Configuration
 
@@ -325,126 +446,6 @@ stream disconnected before completion: invalid peer certificate: UnknownIssuer
   security dump-trust-settings -d | grep -A 2 "modeltap local CA" || security dump-trust-settings | grep -A 2 "modeltap local CA"
   ```
 
-## Running as a background service
-
-To run ModelTap persistently in the background on startup, configure it as an OS service:
-
-### Windows Service (NSSM)
-
-[NSSM (Non-Sucking Service Manager)](https://nssm.cc/) is the simplest way to run ModelTap as a Windows service with automatic restart on crash:
-
-```powershell
-# 1. Install NSSM (via Scoop or Winget)
-winget install NSSM.NSSM
-# or: scoop install nssm
-
-# 2. Install and configure ModelTap as a service (Run PowerShell as Administrator)
-nssm install ModelTap "C:\modeltap\modeltap.exe" "run --config C:\modeltap\config.yaml"
-nssm set ModelTap AppDirectory "C:\modeltap"
-nssm set ModelTap Start SERVICE_AUTO_START
-nssm set ModelTap AppStdout "C:\modeltap\logs\service-stdout.log"
-nssm set ModelTap AppStderr "C:\modeltap\logs\service-stderr.log"
-
-# 3. Start the service
-nssm start ModelTap
-
-# 4. Service management
-nssm status ModelTap
-nssm restart ModelTap
-nssm stop ModelTap
-```
-
-### Windows Service (WinSW)
-
-Alternatively, download [WinSW](https://github.com/winsw/winsw/releases) (e.g. `WinSW-x64.exe`), place it as `modeltap-service.exe` next to `modeltap.exe`, and create `modeltap-service.xml`:
-
-```xml
-<service>
-  <id>ModelTap</id>
-  <name>ModelTap AI Proxy</name>
-  <description>ModelTap AI traffic monitor and cost proxy</description>
-  <executable>C:\modeltap\modeltap.exe</executable>
-  <arguments>run --config C:\modeltap\config.yaml</arguments>
-  <workingdirectory>C:\modeltap</workingdirectory>
-  <logpath>C:\modeltap\logs</logpath>
-  <log mode="roll-by-size">
-    <sizeThreshold>10240</sizeThreshold>
-    <keepFiles>5</keepFiles>
-  </log>
-</service>
-```
-
-Install and start the service:
-
-```powershell
-.\modeltap-service.exe install
-.\modeltap-service.exe start
-```
-
-### Linux (systemd)
-
-Create `/etc/systemd/system/modeltap.service`:
-
-```ini
-[Unit]
-Description=ModelTap AI Traffic Monitor
-After=network.target
-
-[Service]
-Type=simple
-User=modeltap
-WorkingDirectory=/opt/modeltap
-ExecStart=/opt/modeltap/modeltap run --config /opt/modeltap/config.yaml
-Restart=always
-RestartSec=5
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start the service:
-
-```shell
-sudo systemctl daemon-reload
-sudo systemctl enable --now modeltap
-```
-
-### macOS (launchd)
-
-Create `~/Library/LaunchAgents/cn.tenfy.modeltap.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>cn.tenfy.modeltap</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/modeltap</string>
-        <string>run</string>
-        <string>--config</string>
-        <string>/usr/local/etc/modeltap/config.yaml</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/modeltap.stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/modeltap.stderr.log</string>
-</dict>
-</plist>
-```
-
-Load and start the agent:
-
-```shell
-launchctl load ~/Library/LaunchAgents/cn.tenfy.modeltap.plist
-```
 ## Contributing and architecture
 
 For architecture details, internal protocol parser design, agent CLI detection rules, and testing workflows, see [CONTRIBUTING.md](CONTRIBUTING.md).
