@@ -130,6 +130,9 @@ When `telemetry.otlp` is set, usage events are exported through OTLP/HTTP to
 `ai_proxy_tokens`, and `ai_proxy_cost`; labels are limited to `site`,
 `model`, `agent_cli`, token type, price period, and currency.
 
+For monitored HTTP requests, ModelTap requests an uncompressed upstream response
+(`Accept-Encoding: identity`) so that usage data can be parsed accurately.
+
 For an end-to-end Grafana Cloud setup—including installing Grafana Alloy on
 macOS or Linux, creating a least-privilege Cloud Access Policy token,
 configuring remote write, validating the pipeline, and importing the bundled
