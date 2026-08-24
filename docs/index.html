@@ -88,10 +88,18 @@ Grafana Cloud Prometheus ──► Explore and ModelTap dashboard</code></pre>
   <pre><code># 1. Install via Homebrew (automatically generates config.yaml and CA certificates in $(brew --prefix)/etc/modeltap/)
 brew install tenfyzhong/tap/modeltap
 
-# 2. Validate configuration
+# 2. Trust the root CA certificate in your OS trust store
+# macOS:
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+  "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
+# Linux:
+sudo cp "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" /usr/local/share/ca-certificates/modeltap-ca-cert.crt
+sudo update-ca-certificates
+
+# 3. Validate configuration
 modeltap validate --config "$(brew --prefix)/etc/modeltap/config.yaml"
 
-# 3. Run ModelTap (interactive or background service)
+# 4. Run ModelTap (interactive or background service)
 modeltap run --config "$(brew --prefix)/etc/modeltap/config.yaml"
 # or start in background:
 brew services start tenfyzhong/tap/modeltap</code></pre>
@@ -106,13 +114,15 @@ modeltap ca-init `
   --cert certs\modeltap-ca-cert.pem `
   --key certs\modeltap-ca-key.pem
 
-# 3. Copy sample configuration and validate
+# 3. Trust the root CA certificate in Windows Certificate Store
+Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
+
+# 4. Copy sample configuration and validate
 Copy-Item config.sample.yaml config.yaml
 modeltap validate --config config.yaml
 
-# 4. Run ModelTap
+# 5. Run ModelTap
 modeltap run --config config.yaml</code></pre>
-
   <p>Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment (edit <code>$(brew --prefix)/etc/modeltap/config.yaml</code> on macOS/Linux or <code>config.yaml</code> on Windows). The bundled configuration uses a sample <code>privoxy</code> egress route; set <code>egress.default: direct</code> if you do not use an upstream proxy. Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code> (and installed automatically by Homebrew on macOS/Linux); source <code>modeltap.bash</code>, <code>_modeltap</code>, <code>modeltap.fish</code>, or <code>modeltap.ps1</code> for Bash, Zsh, Fish, or PowerShell.</p>
   <p>Set your browser, CLI, or SDK HTTP proxy to <code>http://127.0.0.1:2080</code>. Every host configured under <code>sites</code> is decrypted; other CONNECT tunnels remain transparent.</p>
   <p>Each <code>hosts</code> entry is a domain root and includes all subdomains at a DNS label boundary. For example, <code>googleapis.com</code> includes <code>generativelanguage.googleapis.com</code>, but does not match <code>notgoogleapis.com</code>. Overlapping domain trees across sites are rejected.</p>

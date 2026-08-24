@@ -50,10 +50,18 @@ Install ModelTap and create the local root CA once. Keep the private key secret 
 # 1. Install via Homebrew (automatically generates config.yaml and CA certificates in $(brew --prefix)/etc/modeltap/)
 brew install tenfyzhong/tap/modeltap
 
-# 2. Validate configuration
+# 2. Trust the root CA certificate in your OS trust store
+# macOS:
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+  "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
+# Linux:
+sudo cp "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" /usr/local/share/ca-certificates/modeltap-ca-cert.crt
+sudo update-ca-certificates
+
+# 3. Validate configuration
 modeltap validate --config "$(brew --prefix)/etc/modeltap/config.yaml"
 
-# 3. Run ModelTap (interactive or background service)
+# 4. Run ModelTap (interactive or background service)
 modeltap run --config "$(brew --prefix)/etc/modeltap/config.yaml"
 # or start in background:
 brew services start tenfyzhong/tap/modeltap
@@ -71,11 +79,14 @@ modeltap ca-init `
   --cert certs\modeltap-ca-cert.pem `
   --key certs\modeltap-ca-key.pem
 
-# 3. Copy sample configuration and validate
+# 3. Trust the root CA certificate in Windows Certificate Store
+Import-Certificate -FilePath .\certs\modeltap-ca-cert.pem -CertStoreLocation Cert:\CurrentUser\Root
+
+# 4. Copy sample configuration and validate
 Copy-Item config.sample.yaml config.yaml
 modeltap validate --config config.yaml
 
-# 4. Run ModelTap
+# 5. Run ModelTap
 modeltap run --config config.yaml
 ```
 
