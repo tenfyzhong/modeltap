@@ -2,6 +2,8 @@ name: Test pull requests
 
 on:
   pull_request:
+    paths-ignore:
+      - "**.md"
 
 permissions:
   contents: read
