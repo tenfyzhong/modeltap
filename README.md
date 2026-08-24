@@ -152,6 +152,72 @@ logged. Set `logging.file` to append the same logs to a file while retaining
 stderr output. Debug output can still include prompt and model-response content;
 enable it only in a trusted environment.
 
+## Frequently Asked Questions (FAQ)
+
+### Codex fails with `invalid peer certificate: BadSignature`
+
+**Symptom**: Running `codex` (or other Rust-based CLI tools) through ModelTap outputs:
+
+```text
+Falling back from WebSockets to HTTPS transport.
+stream disconnected before completion: invalid peer certificate: BadSignature
+```
+
+**Cause**: A stale `modeltap local CA` root certificate exists in your system or login keychain with a different public/private key pair than the active CA private key configured in ModelTap. `codex` loads the old root certificate from Keychain, and TLS verification fails because the signature on the dynamically generated leaf certificate was produced by the new private key.
+
+**Resolution**:
+
+1. Remove the old certificate from the macOS Keychain:
+
+   ```shell
+   security delete-certificate -c "modeltap local CA" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
+   sudo security delete-certificate -c "modeltap local CA" /Library/Keychains/System.keychain 2>/dev/null || true
+   ```
+
+2. Re-install and trust the active ModelTap root CA certificate:
+
+   ```shell
+   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <path-to-ca-cert.pem>
+   ```
+
+3. Verify that the serial number and public key match between the Keychain and your CA certificate file:
+
+   ```shell
+   security find-certificate -c "modeltap local CA" -p | openssl x509 -noout -serial -pubkey
+   openssl x509 -in <path-to-ca-cert.pem> -noout -serial -pubkey
+   ```
+
+### Codex fails with `invalid peer certificate: UnknownIssuer`
+
+**Symptom**: Running `codex` outputs:
+
+```text
+Falling back from WebSockets to HTTPS transport.
+stream disconnected before completion: invalid peer certificate: UnknownIssuer
+```
+
+**Cause**: The ModelTap CA certificate is present in the keychain file, but lacks root trust policy settings (for example, `security add-trusted-cert -d` was executed without `sudo`, preventing macOS from writing the admin trust settings). Tools using `rustls-native-certs` only load root certificates configured with explicit trust settings.
+
+**Resolution**:
+
+- **System-wide trust (recommended)**: Run with `sudo` to write to the admin trust settings:
+
+  ```shell
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <path-to-ca-cert.pem>
+  ```
+
+- **User-level trust**: Run without `-d` (and without `sudo`), which triggers a macOS password / Touch ID prompt to authorize user trust:
+
+  ```shell
+  security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db <path-to-ca-cert.pem>
+  ```
+
+- **Verify trust settings**: Confirm that `modeltap local CA` appears in trust settings:
+
+  ```shell
+  security dump-trust-settings -d | grep -A 2 "modeltap local CA" || security dump-trust-settings | grep -A 2 "modeltap local CA"
+  ```
+
 ## Contributing and architecture
 
 For architecture details, internal protocol parser design, agent CLI detection rules, and testing workflows, see [CONTRIBUTING.md](CONTRIBUTING.md).
