@@ -15,6 +15,12 @@ pub struct TokenUsage {
 pub struct ParsedUsage {
     pub model: Option<String>,
     pub tokens: TokenUsage,
+    pub service_tier: Option<ServiceTier>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceTier {
+    Fast,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +84,8 @@ struct UsageEvent {
     message: Option<Box<UsageEvent>>,
     #[serde(rename = "type", default)]
     kind: Option<String>,
+    #[serde(default)]
+    service_tier: Option<String>,
 }
 
 pub fn permessage_deflate_server_no_context_takeover(value: &str) -> Option<bool> {
@@ -280,6 +288,7 @@ impl CursorUsageParser {
                         output: token_delta,
                         ..TokenUsage::default()
                     },
+                    service_tier: None,
                 });
             }
         }
@@ -1073,6 +1082,8 @@ fn parse_openai(value: &UsageEvent) -> Option<ParsedUsage> {
             cache_read,
             cache_write,
         },
+        service_tier: (value.service_tier.as_deref() == Some("priority"))
+            .then_some(ServiceTier::Fast),
     })
 }
 
@@ -1106,6 +1117,7 @@ fn parse_anthropic(value: &UsageEvent) -> Option<ParsedUsage> {
             cache_read,
             cache_write,
         },
+        service_tier: None,
     })
 }
 
@@ -1135,5 +1147,6 @@ fn parse_gemini(value: &UsageEvent) -> Option<ParsedUsage> {
             cache_read,
             cache_write: 0,
         },
+        service_tier: None,
     })
 }

@@ -1,7 +1,7 @@
 use crate::config::OtlpConfig;
 use crate::logging::usage_report_summary;
 use crate::pricing::{PriceBook, PricePeriod, TokenType};
-use crate::usage::TokenUsage;
+use crate::usage::{ServiceTier, TokenUsage};
 use chrono::Utc;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, MeterProvider};
@@ -10,6 +10,22 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use thiserror::Error;
 use tracing::debug;
+
+pub const FAST_MODE_PRICE_MULTIPLIER: f64 = 2.0;
+
+#[derive(Clone, Copy)]
+struct BillingContext<'a> {
+    agent_cli: &'a str,
+    service_tier: Option<ServiceTier>,
+}
+
+pub fn price_multiplier(agent_cli: &str, service_tier: Option<ServiceTier>) -> f64 {
+    if agent_cli == "codex" && service_tier == Some(ServiceTier::Fast) {
+        FAST_MODE_PRICE_MULTIPLIER
+    } else {
+        1.0
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum TelemetryError {
@@ -88,7 +104,17 @@ impl Telemetry {
         usage: &TokenUsage,
         prices: &PriceBook,
     ) {
-        self.record_usage_inner(site, model, agent_cli, usage, prices, true);
+        self.record_usage_inner(
+            site,
+            model,
+            usage,
+            prices,
+            BillingContext {
+                agent_cli,
+                service_tier: None,
+            },
+            true,
+        );
     }
 
     pub fn record_usage_tokens(
@@ -99,16 +125,48 @@ impl Telemetry {
         usage: &TokenUsage,
         prices: &PriceBook,
     ) {
-        self.record_usage_inner(site, model, agent_cli, usage, prices, false);
+        self.record_usage_inner(
+            site,
+            model,
+            usage,
+            prices,
+            BillingContext {
+                agent_cli,
+                service_tier: None,
+            },
+            false,
+        );
     }
 
-    fn record_usage_inner(
+    pub fn record_usage_with_service_tier(
         &self,
         site: &str,
         model: &str,
         agent_cli: &str,
         usage: &TokenUsage,
         prices: &PriceBook,
+        service_tier: Option<ServiceTier>,
+    ) {
+        self.record_usage_inner(
+            site,
+            model,
+            usage,
+            prices,
+            BillingContext {
+                agent_cli,
+                service_tier,
+            },
+            true,
+        );
+    }
+
+    fn record_usage_inner(
+        &self,
+        site: &str,
+        model: &str,
+        usage: &TokenUsage,
+        prices: &PriceBook,
+        billing: BillingContext<'_>,
         count_request: bool,
     ) {
         let started = std::time::Instant::now();
@@ -121,10 +179,16 @@ impl Telemetry {
             .as_ref()
             .map(|price| price.currency.to_owned())
             .unwrap_or_else(|| "unknown".to_owned());
+        let multiplier = price_multiplier(billing.agent_cli, billing.service_tier);
+        let billing_mode = if multiplier == FAST_MODE_PRICE_MULTIPLIER {
+            "fast"
+        } else {
+            "default"
+        };
         let base = [
             KeyValue::new("site", site.to_owned()),
             KeyValue::new("model", model.to_owned()),
-            KeyValue::new("agent_cli", agent_cli.to_owned()),
+            KeyValue::new("agent_cli", billing.agent_cli.to_owned()),
         ];
         if count_request {
             self.requests.add(1, &base);
@@ -153,16 +217,18 @@ impl Telemetry {
                     base[2].clone(),
                     KeyValue::new("price_period", period.unwrap_or("unknown")),
                     KeyValue::new("currency", currency.clone()),
+                    KeyValue::new("billing_mode", billing_mode),
                 ];
-                let value = price * amount as f64 / 1_000_000.0;
+                let value = price * multiplier * amount as f64 / 1_000_000.0;
                 self.cost.add(value, &attributes);
                 total_cost += value;
             }
         }
         debug!(
-            report = %usage_report_summary(site, model, agent_cli, usage),
+            report = %usage_report_summary(site, model, billing.agent_cli, usage),
             currency = %currency,
             price_period = period.unwrap_or("unknown"),
+            billing_mode,
             cost = total_cost,
             "reporting AI usage telemetry"
         );

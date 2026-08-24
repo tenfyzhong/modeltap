@@ -390,10 +390,7 @@ async fn forward_mitm_request(
                                 if let Ok(mut lock) = stream.lock() {
                                     let (parser, observer) = &mut *lock;
                                     if let Some((_protocol, usage)) = parser.push(data) {
-                                        observer.record(
-                                            usage.model.as_deref().unwrap_or("unknown"),
-                                            &usage.tokens,
-                                        );
+                                        observer.record_parsed(&usage);
                                     }
                                 }
                             } else if let (Some(parser), Some(observer), Some(data)) = (
@@ -418,10 +415,7 @@ async fn forward_mitm_request(
                                 if let Ok(mut lock) = json_parser.lock() {
                                     let (parser, observer) = &mut *lock;
                                     if let Some((_protocol, usage)) = parser.push(data) {
-                                        observer.record(
-                                            usage.model.as_deref().unwrap_or("unknown"),
-                                            &usage.tokens,
-                                        );
+                                        observer.record_parsed(&usage);
                                     }
                                 }
                             }
@@ -489,7 +483,7 @@ impl MeasuredBody {
             if let Ok(mut lock) = stream.lock() {
                 let (parser, observer) = &mut *lock;
                 if let Some((_protocol, usage)) = parser.finish() {
-                    observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                    observer.record_parsed(&usage);
                 }
             }
         }
@@ -497,7 +491,7 @@ impl MeasuredBody {
             if let Ok(mut lock) = json.lock() {
                 let (parser, observer) = &mut *lock;
                 if let Some((_protocol, usage)) = parser.finish() {
-                    observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                    observer.record_parsed(&usage);
                 }
             }
         }
@@ -623,7 +617,7 @@ where
             if read == 0 {
                 if let Some((parser, observer)) = parser.as_mut() {
                     if let Some((_protocol, usage)) = parser.finish() {
-                        observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                        observer.record_parsed(&usage);
                     }
                 }
                 return client_write.shutdown().await;
@@ -639,7 +633,7 @@ where
             );
             if let Some((parser, observer)) = parser.as_mut() {
                 for (_protocol, usage) in parser.push_all(data) {
-                    observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
+                    observer.record_parsed(&usage);
                 }
             }
             if let (Some(observer), Some(started)) =
@@ -703,6 +697,17 @@ impl UsageObserver {
     pub fn record(&self, model: &str, usage: &crate::usage::TokenUsage) {
         self.telemetry
             .record_usage(&self.site, model, &self.agent_cli, usage, &self.prices);
+    }
+
+    pub fn record_parsed(&self, usage: &crate::usage::ParsedUsage) {
+        self.telemetry.record_usage_with_service_tier(
+            &self.site,
+            usage.model.as_deref().unwrap_or("unknown"),
+            &self.agent_cli,
+            &usage.tokens,
+            &self.prices,
+            usage.service_tier,
+        );
     }
 
     pub fn record_tokens(&self, model: &str, usage: &crate::usage::TokenUsage) {
