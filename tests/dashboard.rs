@@ -18,6 +18,7 @@ fn dashboard_prompts_for_a_prometheus_datasource_at_import_time() {
             .as_array()
             .unwrap()
             .iter()
+            .filter(|panel| panel["type"] != "row")
             .all(|panel| panel["datasource"]["uid"] == "${DS_PROMETHEUS}")
     );
 }
@@ -253,7 +254,13 @@ fn dashboard_abbreviates_token_values_with_k_m_and_b_suffixes() {
 fn dashboard_shows_p95_modeltap_chunk_processing_duration_in_microseconds() {
     let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
         .expect("dashboard JSON is valid");
-    let panel = dashboard["panels"]
+    let performance_row = dashboard["panels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|panel| panel["id"] == 20)
+        .expect("collapsed performance row exists");
+    let panel = performance_row["panels"]
         .as_array()
         .unwrap()
         .iter()
@@ -263,7 +270,6 @@ fn dashboard_shows_p95_modeltap_chunk_processing_duration_in_microseconds() {
     assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "µs");
     assert_eq!(panel["gridPos"]["w"], 12);
     assert_eq!(panel["gridPos"]["x"], 0);
-    assert_eq!(panel["gridPos"]["y"], 47);
     assert_eq!(
         panel["targets"][0]["expr"],
         "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))"
@@ -275,7 +281,13 @@ fn dashboard_shows_p95_modeltap_chunk_processing_duration_in_microseconds() {
 fn dashboard_shows_average_modeltap_chunk_processing_duration_in_microseconds() {
     let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
         .expect("dashboard JSON is valid");
-    let panel = dashboard["panels"]
+    let performance_row = dashboard["panels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|panel| panel["id"] == 20)
+        .expect("collapsed performance row exists");
+    let panel = performance_row["panels"]
         .as_array()
         .unwrap()
         .iter()
@@ -285,7 +297,6 @@ fn dashboard_shows_average_modeltap_chunk_processing_duration_in_microseconds() 
     assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "µs");
     assert_eq!(panel["gridPos"]["w"], 12);
     assert_eq!(panel["gridPos"]["x"], 12);
-    assert_eq!(panel["gridPos"]["y"], 47);
     assert_eq!(panel["targets"][0]["legendFormat"], "{{site}}");
     assert_eq!(
         panel["targets"][0]["expr"],
@@ -368,7 +379,7 @@ fn dashboard_has_realtime_token_and_cost_breakdowns_by_agent_cli_site_model_and_
 }
 
 #[test]
-fn dashboard_has_summary_panels_matching_the_dashboard_preview() {
+fn dashboard_uses_a_collapsed_performance_row_and_a_second_row_qps_chart() {
     let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
         .expect("dashboard JSON is valid");
     let panels = dashboard["panels"].as_array().unwrap();
@@ -384,25 +395,29 @@ fn dashboard_has_summary_panels_matching_the_dashboard_preview() {
         "topk(1, sum by (agent_cli) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range])))"
     );
 
-    let tokens_by_agent = panels
+    assert!(panels
         .iter()
-        .find(|panel| panel["title"] == "Tokens by agent CLI in selected range")
-        .expect("token-by-agent bar gauge exists");
-    assert_eq!(tokens_by_agent["type"], "bargauge");
-    assert_eq!(tokens_by_agent["fieldConfig"]["defaults"]["unit"], "short");
-    assert_eq!(
-        tokens_by_agent["targets"][0]["expr"],
-        "sum by (agent_cli) (increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__range]))"
-    );
+        .all(|panel| ![18, 19].contains(&panel["id"].as_i64().unwrap())));
 
-    let cost_by_model = panels
+    let qps_by_model = panels
         .iter()
-        .find(|panel| panel["title"] == "Estimated cost by model in selected range (USD)")
-        .expect("cost-by-model bar gauge exists");
-    assert_eq!(cost_by_model["type"], "bargauge");
-    assert_eq!(cost_by_model["fieldConfig"]["defaults"]["unit"], "currencyUSD");
-    assert_eq!(
-        cost_by_model["targets"][0]["expr"],
-        "topk(10, sum by (model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range])))"
-    );
+        .find(|panel| panel["id"] == 4)
+        .expect("QPS-by-model panel exists");
+    assert_eq!(qps_by_model["gridPos"]["x"], 0);
+    assert_eq!(qps_by_model["gridPos"]["y"], 7);
+    assert_eq!(qps_by_model["gridPos"]["w"], 24);
+
+    let performance_row = panels
+        .iter()
+        .find(|panel| panel["id"] == 20)
+        .expect("collapsed performance row exists");
+    assert_eq!(performance_row["type"], "row");
+    assert_eq!(performance_row["title"], "Performance");
+    assert_eq!(performance_row["collapsed"], true);
+    assert_eq!(performance_row["gridPos"]["y"], 47);
+
+    let row_panels = performance_row["panels"].as_array().unwrap();
+    assert_eq!(row_panels.len(), 2);
+    assert!(row_panels.iter().any(|panel| panel["id"] == 13));
+    assert!(row_panels.iter().any(|panel| panel["id"] == 14));
 }

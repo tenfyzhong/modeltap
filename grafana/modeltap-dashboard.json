@@ -62,7 +62,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 63 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 7 },
       "id": 4,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
@@ -72,7 +72,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
       "id": 5,
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) ({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"})", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
@@ -82,7 +82,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
       "id": 12,
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) ({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"})", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
@@ -92,7 +92,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
       "id": 15,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
@@ -102,7 +102,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
       "id": 16,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__rate_interval]))", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
@@ -112,7 +112,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 71 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 55 },
       "id": 6,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Value" }] },
       "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))", "format": "table", "instant": true, "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
@@ -123,7 +123,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 71 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 55 },
       "id": 7,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Value" }] },
       "targets": [{ "editorMode": "code", "expr": "sum by (site, model, type) ({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"})", "format": "table", "instant": true, "refId": "A" }],
@@ -134,7 +134,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
       "id": 8,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
@@ -145,7 +145,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
       "id": 9,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
@@ -156,7 +156,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
       "id": 10,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
@@ -167,32 +167,12 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
       "id": 11,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[1d]))", "legendFormat": "{{agent_cli}}", "refId": "A" }],
       "title": "Daily cost by agent CLI (USD)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
-      "id": 13,
-      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))", "legendFormat": "{{site}}", "refId": "A" }],
-      "title": "P95 ModelTap chunk processing duration by site",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
-      "id": 14,
-      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\"}[$__rate_interval]))", "legendFormat": "{{site}}", "refId": "A" }],
-      "title": "Average ModelTap chunk processing duration by site",
       "type": "timeseries"
     },
     {
@@ -206,24 +186,33 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
-      "id": 18,
-      "options": { "displayMode": "gradient", "namePlacement": "left", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showUnfilled": true, "sizing": "auto", "valueMode": "color" },
-      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli) (increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__range]))", "legendFormat": "{{agent_cli}}", "refId": "A" }],
-      "title": "Tokens by agent CLI in selected range",
-      "type": "bargauge"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 4, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
-      "id": 19,
-      "options": { "displayMode": "gradient", "namePlacement": "left", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showUnfilled": true, "sizing": "auto", "valueMode": "color" },
-      "targets": [{ "editorMode": "code", "expr": "topk(10, sum by (model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range])))", "legendFormat": "{{model}}", "refId": "A" }],
-      "title": "Estimated cost by model in selected range (USD)",
-      "type": "bargauge"
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "id": 20,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+          "id": 13,
+          "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))", "legendFormat": "{{site}}", "refId": "A" }],
+          "title": "P95 ModelTap chunk processing duration by site",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+          "id": 14,
+          "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [{ "editorMode": "code", "expr": "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\"}[$__rate_interval]))", "legendFormat": "{{site}}", "refId": "A" }],
+          "title": "Average ModelTap chunk processing duration by site",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Performance",
+      "type": "row"
     }
   ],
   "refresh": "30s",
