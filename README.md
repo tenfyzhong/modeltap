@@ -1,34 +1,71 @@
 # ModelTap
 
-ModelTap monitors AI model usage, token consumption, and estimated cost, then
-exports those measurements through OTLP/HTTP to observability systems such as
-Grafana Alloy and Grafana Cloud. It runs as a Rust explicit proxy, recognizes
-usage reported by OpenAI, Anthropic, Gemini, and DeepSeek APIs, and applies
-configurable model pricing to the collected usage.
+Know exactly how many tokens and how much money your AI coding agents use.
 
-The proxy supports direct forwarding or a cascading HTTP/HTTPS/SOCKS5 egress
-proxy (including GOST), TLS MITM for configured hosts, HTTP/1.1 and HTTP/2
-upstream connections, streaming SSE pass-through without buffering full
-responses, and bidirectional WebSocket tunneling.
+ModelTap is a transparent, network-level observability proxy for Codex, Claude
+Code, Gemini CLI, oh-my-pi, and other AI clients. It measures the API traffic
+that actually reaches model providers and exports token usage and estimated cost
+to Grafana or any OTLP/HTTP-compatible backend.
+
+**No SDK. No agent patches. No vendor-specific telemetry integration.**
+
+![Model Grafana dashboard showing QPS, token usage, estimated cost, and agent breakdowns](https://tenfy.cn/picture/modeltap-grafana-dashboard.jpg)
+
+ModelTap recognizes OpenAI, Anthropic, Gemini, and DeepSeek API usage; detects
+common agent CLIs automatically; supports streaming SSE and WebSocket traffic;
+and can forward directly or through HTTP, HTTPS, and SOCKS5 egress proxies.
+
+## Why ModelTap?
+
+Native agent telemetry and log parsers can be useful, but neither provides the
+same provider-independent view of what left the machine. ModelTap observes the
+model API boundary instead.
+
+| | ModelTap | Native agent telemetry | Log-file parsers |
+| --- | --- | --- | --- |
+| One view across agent CLIs | Yes | Usually agent-specific | Varies |
+| Measures API usage at the network boundary | Yes | Depends on the agent | No |
+| Requires an agent plugin or code change | No | Often | No |
+| Exports standard OTLP metrics | Yes | Varies | Varies |
+| Works with a configured egress proxy | Yes | Depends on the agent | N/A |
+
+Think of it as a purpose-built `mitmproxy` for AI model usage: it focuses on
+tokens, estimated cost, agent identity, and OpenTelemetry rather than general
+HTTP inspection.
 
 ## Quick start
 
-Build the binary, generate the local root CA once, install the certificate in
-each client trust store, and protect the private key as a secret:
+From a source checkout, install the CLI and create the local CA once. Keep the
+private key secret and install the generated certificate in every client trust
+store that will use ModelTap:
 
 ```shell
-make build
+cargo install --path .
 mkdir -p certs
-./target/debug/modeltap ca-init \
+modeltap ca-init \
   --cert certs/modeltap-ca-cert.pem \
   --key certs/modeltap-ca-key.pem
 cp config.sample.yaml config.yaml
-./target/debug/modeltap run --config config.yaml
-./target/debug/modeltap validate --config config.yaml
+modeltap validate --config config.yaml
+modeltap run --config config.yaml
 ```
 
-Use `modeltap validate --config <CONFIG>` to check YAML syntax, site/egress validation,
-and pricing rules without binding a listener or reading certificate files.
+Before starting the proxy, open `config.yaml` and set the telemetry endpoint,
+egress route, and pricing rules for your environment. The bundled configuration
+uses a sample `privoxy` egress route; set `egress.default: direct` if you do not
+use an upstream proxy. `modeltap validate --config <CONFIG>` checks YAML,
+site/egress validation, and pricing rules without binding a listener or reading
+certificate files.
+
+After the proxy starts, configure your agent to use `http://127.0.0.1:2080`.
+The client configuration below includes a working Node.js and oh-my-pi example.
+
+### What you get
+
+- Token totals and estimated cost, broken down by agent CLI, provider site, model, and token type.
+- A bundled [Grafana dashboard](grafana/modeltap-dashboard.json) with filters for agent, site, and model.
+- Standard OTLP/HTTP metrics for Grafana Alloy, Grafana Cloud, and compatible backends.
+- Streaming-friendly inspection for HTTP/1.1, HTTP/2, SSE, and WebSocket traffic.
 
 Shell completions are included in `completions/`. Load the appropriate file
 with `source completions/modeltap.bash`, `source completions/_modeltap`, or

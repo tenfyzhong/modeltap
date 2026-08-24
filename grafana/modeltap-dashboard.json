@@ -35,7 +35,7 @@
       "gridPos": { "h": 7, "w": 6, "x": 0, "y": 0 },
       "id": 1,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "targets": [{ "editorMode": "code", "expr": "sum(rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum(rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "", "refId": "A" }],
       "title": "QPS",
       "type": "stat"
     },
@@ -45,7 +45,7 @@
       "gridPos": { "h": 7, "w": 6, "x": 6, "y": 0 },
       "id": 2,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "targets": [{ "editorMode": "code", "expr": "sum(increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__range]))", "legendFormat": "", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum(increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[$__range]))", "legendFormat": "", "refId": "A" }],
       "title": "Total tokens in selected range",
       "type": "stat"
     },
@@ -55,67 +55,67 @@
       "gridPos": { "h": 7, "w": 6, "x": 12, "y": 0 },
       "id": 3,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "targets": [{ "editorMode": "code", "expr": "sum(increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))", "legendFormat": "", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum(increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))", "legendFormat": "", "refId": "A" }],
       "title": "Cost in selected range (USD)",
       "type": "stat"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" }, "overrides": [] },
-      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 7 },
       "id": 4,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
       "title": "QPS by model",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
       "id": 5,
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) ({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"})", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) ({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"})", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
       "title": "Cumulative tokens by agent_cli, site, model, and type",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
       "id": 12,
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) ({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"})", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) ({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"})", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
       "title": "Cumulative cost by agent_cli, site, model, and type",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
       "id": 15,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
       "title": "Tokens by agent_cli, site, model, and type",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
       "id": 16,
       "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__rate_interval]))", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__rate_interval]))", "legendFormat": "{{agent_cli}} / {{site}} / {{model}} / {{type}}", "refId": "A" }],
       "title": "Cost by agent_cli, site, model, and type (USD)",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 55 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
       "id": 6,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Value" }] },
-      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))", "format": "table", "instant": true, "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))", "format": "table", "instant": true, "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
       "title": "Cost by model in selected range (USD)",
       "transformations": [{ "id": "labelsToFields", "options": { "valueLabel": "Cost" } }],
       "type": "table"
@@ -123,10 +123,10 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 55 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
       "id": 7,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Value" }] },
-      "targets": [{ "editorMode": "code", "expr": "sum by (site, model, type) ({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"})", "format": "table", "instant": true, "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (site, model, type) ({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"})", "format": "table", "instant": true, "refId": "A" }],
       "title": "Token totals by site, model, and type",
       "transformations": [{ "id": "labelsToFields", "options": { "valueLabel": "Tokens" } }],
       "type": "table"
@@ -134,66 +134,85 @@
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
       "id": 8,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[1d]))", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[1d]))", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
       "title": "Daily tokens by model",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
       "id": 9,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[1d]))", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[1d]))", "legendFormat": "{{site}} / {{model}}", "refId": "A" }],
       "title": "Daily cost by model (USD)",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
       "id": 10,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli) (increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[1d]))", "legendFormat": "{{agent_cli}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli) (increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[1d]))", "legendFormat": "{{agent_cli}}", "refId": "A" }],
       "title": "Daily tokens by agent CLI",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 6, "unit": "currencyUSD" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
       "id": 11,
       "interval": "1d",
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[1d]))", "legendFormat": "{{agent_cli}}", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (agent_cli) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[1d]))", "legendFormat": "{{agent_cli}}", "refId": "A" }],
       "title": "Daily cost by agent CLI (USD)",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
-      "id": 13,
-      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))", "legendFormat": "{{site}}", "refId": "A" }],
-      "title": "P95 ModelTap chunk processing duration by site",
-      "type": "timeseries"
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "decimals": 4, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "currencyUSD" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 },
+      "id": 17,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name" },
+      "targets": [{ "editorMode": "code", "expr": "topk(1, sum by (agent_cli) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range])))", "legendFormat": "{{agent_cli}}", "refId": "A" }],
+      "title": "Top agent by estimated cost (USD)",
+      "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
-      "id": 14,
-      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\"}[$__rate_interval]))", "legendFormat": "{{site}}", "refId": "A" }],
-      "title": "Average ModelTap chunk processing duration by site",
-      "type": "timeseries"
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 55 },
+      "id": 20,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+          "id": 13,
+          "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\", agent_cli!~\"benchmark_client|test_client\"}[$__rate_interval])))", "legendFormat": "{{site}}", "refId": "A" }],
+          "title": "P95 ModelTap chunk processing duration by site",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "µs" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+          "id": 14,
+          "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [{ "editorMode": "code", "expr": "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\", agent_cli!~\"benchmark_client|test_client\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\", agent_cli!~\"benchmark_client|test_client\"}[$__rate_interval]))", "legendFormat": "{{site}}", "refId": "A" }],
+          "title": "Average ModelTap chunk processing duration by site",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Performance",
+      "type": "row"
     }
   ],
   "refresh": "30s",
@@ -201,7 +220,7 @@
   "tags": ["ai", "llm", "modeltap", "cost"],
   "templating": {
     "list": [
-      { "allValue": ".*", "current": { "text": "All", "value": "$__all" }, "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "definition": "label_values(agent_cli)", "hide": 0, "includeAll": true, "label": "Agent CLI", "name": "agent_cli", "options": [], "query": { "qryType": 1, "query": "label_values(agent_cli)", "refId": "Prometheus-agent-cli-Variable-Query" }, "refresh": 1, "regex": "", "sort": 1, "type": "query" },
+      { "allValue": ".*", "current": { "text": "All", "value": "$__all" }, "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "definition": "label_values({__name__=~\"ai_proxy_requests(_total)?\", agent_cli!~\"benchmark_client|test_client\"}, agent_cli)", "hide": 0, "includeAll": true, "label": "Agent CLI", "name": "agent_cli", "options": [], "query": { "qryType": 1, "query": "label_values({__name__=~\"ai_proxy_requests(_total)?\", agent_cli!~\"benchmark_client|test_client\"}, agent_cli)", "refId": "Prometheus-agent-cli-Variable-Query" }, "refresh": 1, "regex": "", "sort": 1, "type": "query" },
       { "allValue": ".*", "current": { "text": "All", "value": "$__all" }, "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "definition": "label_values({__name__=~\"ai_proxy_requests(_total)?\", agent_cli=~\"$agent_cli\"}, site)", "hide": 0, "includeAll": true, "label": "Site", "name": "site", "options": [], "query": { "qryType": 1, "query": "label_values({__name__=~\"ai_proxy_requests(_total)?\", agent_cli=~\"$agent_cli\"}, site)", "refId": "Prometheus-site-Variable-Query" }, "refresh": 1, "regex": "", "sort": 1, "type": "query" },
       { "allValue": ".*", "current": { "text": "All", "value": "$__all" }, "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "definition": "label_values({__name__=~\"ai_proxy_requests(_total)?\", agent_cli=~\"$agent_cli\", site=~\"$site\"}, model)", "hide": 0, "includeAll": true, "label": "Model", "name": "model", "options": [], "query": { "qryType": 1, "query": "label_values({__name__=~\"ai_proxy_requests(_total)?\", agent_cli=~\"$agent_cli\", site=~\"$site\"}, model)", "refId": "Prometheus-model-Variable-Query" }, "refresh": 1, "regex": "", "sort": 1, "type": "query" }
     ]

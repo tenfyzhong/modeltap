@@ -184,9 +184,14 @@ impl Telemetry {
         );
     }
 
-    pub fn record_local_processing_duration(&self, site: &str, microseconds: f64) {
-        self.local_processing_duration
-            .record(microseconds, &[KeyValue::new("site", site.to_owned())]);
+    pub fn record_local_processing_duration(&self, site: &str, agent_cli: &str, microseconds: f64) {
+        self.local_processing_duration.record(
+            microseconds,
+            &[
+                KeyValue::new("site", site.to_owned()),
+                KeyValue::new("agent_cli", agent_cli.to_owned()),
+            ],
+        );
     }
 
     pub fn record_local_processing_duration_with_attributes(

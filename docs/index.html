@@ -15,14 +15,32 @@
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .note { border-left: 4px solid #4f8cff; background: #4f8cff18; padding: .75rem 1rem; }
     img { max-width: 100%; height: auto; border-radius: .5rem; border: 1px solid #8884; margin: .75rem 0 1.25rem; display: block; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #8886; padding: .6rem; text-align: left; }
   </style>
 </head>
 <body>
 <main>
   <h1>ModelTap</h1>
-  <p>ModelTap monitors AI model usage, token consumption, and estimated cost, then exports those measurements through OTLP/HTTP to observability systems such as Grafana Alloy and Grafana Cloud. It is a Rust explicit proxy with TLS MITM for configured hosts, direct or cascading HTTP/HTTPS/SOCKS5 egress, automatic usage-protocol detection, and configurable model pricing.</p>
-  <p>HTTP, SSE, and long-lived WebSocket traffic are forwarded as a stream. For Codex WebSockets, ModelTap observes OpenAI Responses usage events and side-decompresses negotiated <code>permessage-deflate</code> frames without changing the original handshake or forwarded frames.</p>
-  <nav><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#node">Node.js</a><a href="#config">Configuration</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
+  <p>Know exactly how many tokens and how much money your AI coding agents use.</p>
+  <p>ModelTap is a transparent, network-level observability proxy for Codex, Claude Code, Gemini CLI, oh-my-pi, and other AI clients. It measures the API traffic that actually reaches model providers and exports token usage and estimated cost to Grafana or any OTLP/HTTP-compatible backend.</p>
+  <p><strong>No SDK. No agent patches. No vendor-specific telemetry integration.</strong></p>
+  <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.jpg" alt="ModelTap Grafana dashboard showing QPS, token usage, estimated cost, and agent breakdowns" loading="eager">
+  <p>ModelTap recognizes OpenAI, Anthropic, Gemini, and DeepSeek API usage; detects common agent CLIs automatically; supports streaming SSE and WebSocket traffic; and can forward directly or through HTTP, HTTPS, and SOCKS5 egress proxies.</p>
+  <nav><a href="#why">Why ModelTap?</a><a href="#architecture">Architecture</a><a href="#start">Quick start</a><a href="#certificate">Certificates</a><a href="#node">Node.js</a><a href="#config">Configuration</a><a href="#sites">Sites</a><a href="#logging">Logging</a><a href="#alloy">Alloy</a><a href="#docker">Docker</a><a href="#grafana">Grafana</a><a href="#security">Security</a></nav>
+
+  <h2 id="why">Why ModelTap?</h2>
+  <p>Native agent telemetry and log parsers can be useful, but neither provides the same provider-independent view of what left the machine. ModelTap observes the model API boundary instead.</p>
+  <table>
+    <thead><tr><th></th><th>ModelTap</th><th>Native agent telemetry</th><th>Log-file parsers</th></tr></thead>
+    <tbody>
+      <tr><td>One view across agent CLIs</td><td>Yes</td><td>Usually agent-specific</td><td>Varies</td></tr>
+      <tr><td>Measures API usage at the network boundary</td><td>Yes</td><td>Depends on the agent</td><td>No</td></tr>
+      <tr><td>Requires an agent plugin or code change</td><td>No</td><td>Often</td><td>No</td></tr>
+      <tr><td>Exports standard OTLP metrics</td><td>Yes</td><td>Varies</td><td>Varies</td></tr>
+      <tr><td>Works with a configured egress proxy</td><td>Yes</td><td>Depends on the agent</td><td>N/A</td></tr>
+    </tbody>
+  </table>
 
   <h2 id="architecture">Architecture</h2>
   <h3>ModelTap request path</h3>
@@ -56,14 +74,16 @@ Grafana Cloud Prometheus ──► Explore and ModelTap dashboard</code></pre>
   <p>ModelTap emits the cumulative counters <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>, plus proxy and telemetry latency histograms. Usage counter labels are <code>site</code>, <code>model</code>, <code>agent_cli</code>, token <code>type</code>, <code>price_period</code>, and <code>currency</code> where applicable. The client response path does not wait for remote write: the OTLP SDK batches exports in the background. In Grafana, select data in the order <code>Agent CLI → Site → Model</code>.</p>
 
   <h2 id="start">Quick start</h2>
-  <pre><code>make build
+  <p>From a source checkout, install the CLI and create the local CA once. Keep the private key secret and install the generated certificate in every client trust store that will use ModelTap:</p>
+  <pre><code>cargo install --path .
 mkdir -p certs
-./target/debug/modeltap ca-init \
+modeltap ca-init \
   --cert certs/modeltap-ca-cert.pem \
   --key certs/modeltap-ca-key.pem
-./target/debug/modeltap run --config config.sample.yaml
-./target/debug/modeltap validate --config config.sample.yaml</code></pre>
-  <p>Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code>; source <code>modeltap.bash</code>, <code>_modeltap</code>, or <code>modeltap.fish</code> for Bash, Zsh, or Fish.</p>
+cp config.sample.yaml config.yaml
+modeltap validate --config config.yaml
+modeltap run --config config.yaml</code></pre>
+  <p>Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment. The bundled configuration uses a sample <code>privoxy</code> egress route; set <code>egress.default: direct</code> if you do not use an upstream proxy. Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code>; source <code>modeltap.bash</code>, <code>_modeltap</code>, or <code>modeltap.fish</code> for Bash, Zsh, or Fish.</p>
   <p>Set your browser, CLI, or SDK HTTP proxy to <code>http://127.0.0.1:2080</code>. Every host configured under <code>sites</code> is decrypted; other CONNECT tunnels remain transparent.</p>
   <p>Each <code>hosts</code> entry is a domain root and includes all subdomains at a DNS label boundary. For example, <code>googleapis.com</code> includes <code>generativelanguage.googleapis.com</code>, but does not match <code>notgoogleapis.com</code>. Overlapping domain trees across sites are rejected.</p>
   <p>The inbound proxy does not require client authentication, including on a non-loopback listener such as <code>0.0.0.0:2080</code>. Protect non-loopback listeners with a host firewall, private network, or another trusted access-control layer to avoid running an open proxy.</p>
@@ -127,7 +147,8 @@ sites:
       - api.x.ai
   - id: cursor
     hosts:
-      - api2.cursor.sh
+      - cursor.sh
+      - cursor.com
 
 pricing:
   timezone: Asia/Shanghai
@@ -243,7 +264,7 @@ pricing:
         input: 0.5
         output: 3
         cache_read: 0.05</code></pre>
-  <p>With this configuration, Grok uses the OpenAI-compatible API at <code>api.x.ai</code> and Cursor uses <code>api2.cursor.sh</code>. Rates are per million tokens. Pricing rules can be configured globally (without a <code>site</code>) or for a specific <code>site</code> as an override. Peak windows can be configured globally or customized per model with an optional <code>weekdays</code> array (e.g. <code>weekdays: [1, 2, 3, 4, 5]</code> or <code>weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"]</code> where 1 / "Mon" / "Monday" = Monday to 7 / "Sun" / "Sunday" = Sunday), may cross midnight, and must not overlap on the same day. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
+  <p>With this configuration, Grok uses the OpenAI-compatible API at <code>api.x.ai</code> and Cursor uses <code>cursor.sh</code> and <code>cursor.com</code>. Rates are per million tokens. Pricing rules can be configured globally (without a <code>site</code>) or for a specific <code>site</code> as an override. Peak windows can be configured globally or customized per model with an optional <code>weekdays</code> array (e.g. <code>weekdays: [1, 2, 3, 4, 5]</code> or <code>weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"]</code> where 1 / "Mon" / "Monday" = Monday to 7 / "Sun" / "Sunday" = Sunday), may cross midnight, and must not overlap on the same day. A <code>rates</code> rule applies the same price all day and can coexist with global <code>peak_windows</code> used by another model:</p>
   <pre><code>rates:
   input: 0.02
   output: 0</code></pre>
@@ -348,7 +369,7 @@ sudo systemctl restart alloy
 sudo journalctl -u alloy -f</code></pre>
   <p>Open <code>http://127.0.0.1:12345</code> and confirm that all Alloy components are healthy. Then start ModelTap, send one request through the proxy, and query <code>ai_proxy_requests</code> in Grafana Cloud <strong>Explore</strong> using the stack's Prometheus data source. Metrics can take a short time to appear because the OTLP SDK batches exports.</p>
   <p>For a host installation of ModelTap, keep <code>telemetry.otlp.endpoint: http://127.0.0.1:4318</code>. The included Docker configuration already uses <code>http://host.docker.internal:4318</code> so a ModelTap container can reach Alloy running on a Docker Desktop host.</p>
-  <p>Usage metrics are <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>. Labels are limited to site, model, agent CLI, token type, pricing period, and currency.</p>
+  <p>Usage metrics are <code>ai_proxy_requests</code>, <code>ai_proxy_tokens</code>, and <code>ai_proxy_cost</code>. Labels are limited to site, model, agent CLI, token type, pricing period, and currency. Local processing-duration metrics include site and agent CLI labels so internal benchmark and test traffic can be excluded.</p>
 
   <h2>Telemetry overhead and latency</h2>
   <p>Four additional OTLP histograms quantify proxy latency and overhead: <code>ai_proxy_upstream_first_response_seconds</code> measures the time from a proxied request reaching ModelTap until upstream response headers arrive; <code>ai_proxy_processing_duration_microseconds</code> measures, in microseconds, the time from a request entering ModelTap until its response leaves it; <code>ai_proxy_local_processing_duration_microseconds</code> records one sample for each HTTP body chunk and server-to-client WebSocket frame that ModelTap parses and uses to record usage. It excludes upstream and OTLP export network time; <code>ai_proxy_telemetry_record_duration_seconds</code> measures local usage-metric recording time. The OTLP SDK batches exports in the background instead of waiting in the user response path.</p>
@@ -369,8 +390,9 @@ docker compose logs -f modeltap</code></pre>
   <p>The included Compose configuration binds the proxy to host port 2080, mounts both CA files read-only, and uses <code>host.docker.internal</code> to access GOST on port 1081 and Alloy on port 4318 from Docker Desktop on macOS. Install the CA certificate in each client trust store; do not install or distribute the private key. In production, use Docker Secrets, Kubernetes Secrets, or a secret manager for the CA key.</p>
 
   <h2 id="grafana">Grafana Cloud</h2>
+  <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.jpg" alt="ModelTap Grafana dashboard with agent, site, and model filters" loading="lazy">
   <p>After <code>ai_proxy_requests</code> appears in Explore, open <strong>Dashboards → New → Import</strong>, upload <code>grafana/modeltap-dashboard.json</code>, and select the same Prometheus data source. Click <strong>Import</strong> to create the ModelTap dashboard. Re-import with the same dashboard UID to overwrite an older copy after the JSON changes.</p>
-  <p>The dashboard reads cumulative counters so the first exported usage sample is visible immediately. Its variables are ordered <code>Agent CLI</code>, <code>Site</code>, and <code>Model</code>, with each selection filtering the following ones. Cumulative token and cost charts group data by <code>agent_cli</code>, <code>site</code>, <code>model</code>, and <code>type</code>; token values abbreviate large values as K, M, or B. Cost is displayed in USD.</p>
+  <p>The dashboard reads cumulative counters so the first exported usage sample is visible immediately. Its variables are ordered <code>Agent CLI</code>, <code>Site</code>, and <code>Model</code>, with each selection filtering the following ones. <code>test_client</code> and <code>benchmark_client</code> are excluded from both the variable and every panel query. The second row shows QPS by model; cumulative token and cost charts group data by <code>agent_cli</code>, <code>site</code>, <code>model</code>, and <code>type</code>. Selected-range totals are visible above the default-collapsed <strong>Performance</strong> row, which contains local processing-duration charts. Token values abbreviate large values as K, M, or B. Cost is displayed in USD.</p>
 
   <h2>Docker Hub and binary releases</h2>
   <p>Pushing a Git tag, or manually dispatching the workflow for an existing tag, publishes Docker images and creates or updates the matching GitHub Release. Configure repository secrets <code>DOCKERHUB_USERNAME</code> and <code>DOCKERHUB_TOKEN</code>. The workflow builds separate <code>linux/amd64</code> and <code>linux/arm64</code> images with <code>-amd64</code> and <code>-arm64</code> suffixes, then publishes multi-architecture manifests for the version (without a leading <code>v</code>) and <code>latest</code>.</p>
@@ -385,7 +407,7 @@ docker compose logs -f modeltap</code></pre>
     <li>Keep credentials in environment variables, mounted secrets, or a secret manager.</li>
     <li>Never expose API keys, prompts, completions, request IDs, or user IDs as metrics labels.</li>
   </ul>
-  <p>See <a href="https://github.com/tenfyzhong/modeltap/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> and the <a href="https://github.com/tenfyzhong/modeltap/blob/main/LICENSE">MIT License</a>.</p>
+  <p>See <a href="https://github.com/tenfyzhong/modeltap/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> and the <a href="https://github.com/tenfyzhong/modeltap/blob/main/LICENSE">Apache-2.0 License</a>.</p>
 </main>
 </body>
 </html>
