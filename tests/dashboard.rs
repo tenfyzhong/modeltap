@@ -189,8 +189,11 @@ fn dashboard_variables_use_explicit_label_value_queries() {
         .iter()
         .find(|variable| variable["name"] == "agent_cli")
         .unwrap();
-    assert_eq!(agent_cli["query"]["query"], "label_values(agent_cli)");
-    assert_eq!(agent_cli["definition"], "label_values(agent_cli)");
+    assert_eq!(
+        agent_cli["query"]["query"],
+        "label_values({__name__=~\"ai_proxy_requests(_total)?\", agent_cli!~\"benchmark_client|test_client\"}, agent_cli)"
+    );
+    assert_eq!(agent_cli["definition"], agent_cli["query"]["query"]);
     assert_eq!(agent_cli["query"]["qryType"], 1);
 
     for (name, label) in [("site", "site"), ("model", "model")] {
