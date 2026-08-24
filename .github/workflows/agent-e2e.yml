@@ -4,11 +4,13 @@ on:
   pull_request:
     paths-ignore:
       - "**.md"
+      - "**.html"
   push:
     branches:
       - main
     paths-ignore:
       - "**.md"
+      - "**.html"
   workflow_dispatch:
 
 permissions:
