@@ -1,7 +1,7 @@
 use modeltap::config::OtlpConfig;
 use modeltap::pricing::{PriceBook, PricingConfig};
-use modeltap::telemetry::Telemetry;
-use modeltap::usage::TokenUsage;
+use modeltap::telemetry::{FAST_MODE_PRICE_MULTIPLIER, Telemetry, price_multiplier};
+use modeltap::usage::{ServiceTier, TokenUsage};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -98,4 +98,14 @@ async fn exports_usage_metrics_to_the_alloy_otlp_http_path() {
     telemetry.record_local_processing_duration("openai", "duration_observer", 0.5);
     telemetry.force_flush().unwrap();
     receiver.await.unwrap();
+}
+
+#[test]
+fn applies_the_fast_price_only_to_codex_responses_served_in_fast_mode() {
+    assert_eq!(
+        price_multiplier("codex", Some(ServiceTier::Fast)),
+        FAST_MODE_PRICE_MULTIPLIER
+    );
+    assert_eq!(price_multiplier("codex", None), 1.0);
+    assert_eq!(price_multiplier("other", Some(ServiceTier::Fast)), 1.0);
 }

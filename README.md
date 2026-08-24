@@ -156,6 +156,16 @@ pricing:
       off_peak:
         input: 1.0
         output: 2.0
+    # Optional exact rates for server-confirmed Codex Fast responses.
+    # When omitted, Fast responses use twice the regular rate for compatibility.
+    - model: gpt-5-codex
+      currency: USD
+      rates:
+        input: 1.5
+        output: 6.0
+      fast:
+        input: 3.0
+        output: 12.0
 ```
 
 Each peak window specifies `start` and `end` times in `HH:MM` format and an optional `weekdays` array (e.g. `weekdays: [1, 2, 3, 4, 5]` or `weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"]`, where `1` / `"Mon"` / `"Monday"` = Monday through `7` / `"Sun"` / `"Sunday"` = Sunday; defaults to all days `[1, 2, 3, 4, 5, 6, 7]`). Windows may cross midnight (for example `start: "22:00"`, `end: "02:00"`) but must not overlap on the same day.
@@ -165,7 +175,12 @@ Each peak window specifies `start` and `end` times in `HH:MM` format and an opti
 When `telemetry.otlp` is set, usage events are exported through OTLP/HTTP to
 `<endpoint>/v1/metrics`. The exported metrics are `ai_proxy_requests`,
 `ai_proxy_tokens`, and `ai_proxy_cost`; labels are limited to `site`,
-`model`, `agent_cli`, token type, price period, and currency.
+`model`, `agent_cli`, token type, price period, currency, and billing mode.
+For Codex responses that the server reports as Fast mode (`service_tier: priority`),
+ModelTap uses the matching rule's optional `fast` price block and exports their
+cost with `billing_mode="fast"`. If no `fast` price is configured, it applies a
+2x multiplier to the regular price for backward compatibility. Requests that merely
+ask for Fast mode, but are not served in it, retain default billing.
 
 For monitored HTTP requests, ModelTap requests an uncompressed upstream response
 (`Accept-Encoding: identity`) so that usage data can be parsed accurately.

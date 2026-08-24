@@ -162,6 +162,27 @@ fn supports_explicit_peak_window_bounds_and_uniform_prices() {
 }
 
 #[test]
+fn supports_rule_specific_fast_pricing() {
+    let config = Config::from_yaml(
+        "pricing:\n  timezone: UTC\n  rules:\n    - model: gpt-5-codex\n      currency: USD\n      rates:\n        input: '1.5'\n        output: '6'\n      fast:\n        input: '3'\n        output: '12'\n        cache_read: '0.3'\n",
+    )
+    .unwrap();
+    let prices = PriceBook::from_config(&config.pricing).unwrap();
+    let instant = "2026-08-20T10:00:00Z".parse().unwrap();
+
+    let standard = prices.lookup("openai", "gpt-5-codex", instant).unwrap();
+    assert_eq!(standard.rate(TokenType::Input).unwrap().to_string(), "1.5");
+    assert_eq!(standard.rate(TokenType::Output).unwrap().to_string(), "6");
+
+    let fast = prices
+        .lookup_fast("openai", "gpt-5-codex", instant)
+        .unwrap();
+    assert_eq!(fast.rate(TokenType::Input).unwrap().to_string(), "3");
+    assert_eq!(fast.rate(TokenType::Output).unwrap().to_string(), "12");
+    assert_eq!(fast.rate(TokenType::CacheRead).unwrap().to_string(), "0.3");
+}
+
+#[test]
 fn rejects_unknown_egress_and_overlapping_hosts() {
     let unknown = CONFIG.replace("egress: direct\n", "egress: missing\n");
     assert!(Config::from_yaml(&unknown).is_err());
@@ -612,6 +633,18 @@ fn config_sample_prices_cursor_models_at_official_upstream_rates() {
     assert_eq!(
         cursor_sol.rate(TokenType::Output).unwrap().to_string(),
         "15"
+    );
+
+    let cursor_sol_fast = book
+        .lookup_fast("cursor", "gpt-5.6-sol-high", instant)
+        .unwrap();
+    assert_eq!(
+        cursor_sol_fast.rate(TokenType::Input).unwrap().to_string(),
+        "5"
+    );
+    assert_eq!(
+        cursor_sol_fast.rate(TokenType::Output).unwrap().to_string(),
+        "30"
     );
 
     // gpt-5.6-sol on openai uses global official pricing

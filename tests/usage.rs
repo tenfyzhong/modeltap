@@ -1,7 +1,7 @@
 use flate2::{Compress, Compression, FlushCompress};
 use modeltap::usage::{
-    AutoStreamUsageParser, CursorUsageParser, DirectJsonUsageParser, Provider, StreamUsageParser,
-    TokenUsage, WebSocketUsageParser, auto_parse_json,
+    AutoStreamUsageParser, CursorUsageParser, DirectJsonUsageParser, Provider, ServiceTier,
+    StreamUsageParser, TokenUsage, WebSocketUsageParser, auto_parse_json,
     permessage_deflate_server_no_context_takeover,
 };
 
@@ -48,6 +48,28 @@ fn ignores_sse_events_after_the_response_has_completed() {
     assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
     assert_eq!(usage.tokens.output, 10);
     assert!(parser.finish().is_none());
+}
+
+#[test]
+fn records_fast_mode_only_from_the_completed_response_service_tier() {
+    let mut parser = AutoStreamUsageParser::new();
+    let (_, usage) = parser
+        .push(
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5.6-terra\",\"service_tier\":\"priority\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20}}}\n\n",
+        )
+        .unwrap();
+
+    assert_eq!(usage.service_tier, Some(ServiceTier::Fast));
+}
+
+#[test]
+fn does_not_treat_non_fast_completed_response_as_fast_mode() {
+    let (_, usage) = auto_parse_json(
+        br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","service_tier":"default","usage":{"input_tokens":100,"output_tokens":20}}}"#,
+    )
+    .unwrap();
+
+    assert_eq!(usage.service_tier, None);
 }
 
 #[test]
@@ -314,6 +336,16 @@ fn parses_a_fragmented_websocket_response_completed_usage_event() {
             cache_write: 0,
         }
     );
+}
+
+#[test]
+fn records_fast_mode_from_a_websocket_completed_response() {
+    let payload = br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","service_tier":"priority","usage":{"input_tokens":100,"output_tokens":20}}}"#;
+    let mut parser = WebSocketUsageParser::new();
+
+    let (_, usage) = parser.push(&websocket_text_frame(payload)).unwrap();
+
+    assert_eq!(usage.service_tier, Some(ServiceTier::Fast));
 }
 
 #[test]

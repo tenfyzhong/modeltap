@@ -126,6 +126,10 @@ pricing:
         input: 3.5
         output: 28
         cache_read: 0.35
+      fast:
+        input: 7
+        output: 56
+        cache_read: 0.7
     - model: "gpt-5.4-{high,low,medium,xhigh}"
       currency: USD
       rates:
@@ -156,18 +160,30 @@ pricing:
         input: 5
         output: 30
         cache_read: 0.5
+      fast:
+        input: 10
+        output: 60
+        cache_read: 1
     - model: "gpt-5.6-terra*"
       currency: USD
       rates:
         input: 2
         output: 12
         cache_read: 0.2
+      fast:
+        input: 4
+        output: 24
+        cache_read: 0.4
     - model: "gpt-5.6-luna*"
       currency: USD
       rates:
         input: 0.2
         output: 1.2
         cache_read: 0.02
+      fast:
+        input: 0.4
+        output: 2.4
+        cache_read: 0.04
 
     # Anthropic / Claude models
     - model: "claude-4-sonnet*"
@@ -292,6 +308,10 @@ pricing:
         input: 2.5
         output: 15
         cache_read: 0.25
+      fast:
+        input: 5
+        output: 30
+        cache_read: 0.5
     - site: cursor
       model: "gpt-5.6-terra-{high,low,max,medium,none,xhigh}"
       currency: USD
@@ -299,6 +319,10 @@ pricing:
         input: 1.25
         output: 7.5
         cache_read: 0.125
+      fast:
+        input: 2.5
+        output: 15
+        cache_read: 0.25
     - site: cursor
       model: "gpt-5.6-luna-{high,low,max,medium,none,xhigh}"
       currency: USD
@@ -306,3 +330,7 @@ pricing:
         input: 0.5
         output: 3
         cache_read: 0.05
+      fast:
+        input: 1
+        output: 6
+        cache_read: 0.1
