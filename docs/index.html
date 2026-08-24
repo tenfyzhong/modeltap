@@ -85,27 +85,35 @@ Grafana Cloud Prometheus ──► Explore and ModelTap dashboard</code></pre>
   <p>Install ModelTap and create the local root CA once. Keep the private key secret and install the generated certificate in your operating system or client trust store:</p>
 
   <h3>macOS / Linux</h3>
-  <pre><code>brew install tenfyzhong/tap/modeltap
-mkdir -p certs
-modeltap ca-init \
-  --cert certs/modeltap-ca-cert.pem \
-  --key certs/modeltap-ca-key.pem
-cp config.sample.yaml config.yaml
-modeltap validate --config config.yaml
-modeltap run --config config.yaml</code></pre>
+  <pre><code># 1. Install via Homebrew (automatically generates config.yaml and CA certificates in $(brew --prefix)/etc/modeltap/)
+brew install tenfyzhong/tap/modeltap
+
+# 2. Validate configuration
+modeltap validate --config "$(brew --prefix)/etc/modeltap/config.yaml"
+
+# 3. Run ModelTap (interactive or background service)
+modeltap run --config "$(brew --prefix)/etc/modeltap/config.yaml"
+# or start in background:
+brew services start tenfyzhong/tap/modeltap</code></pre>
 
   <h3>Windows (PowerShell)</h3>
-  <pre><code># Install from source or download the prebuilt binary from Releases
+  <pre><code># 1. Install from source or download the prebuilt binary from Releases
 cargo install --path .
+
+# 2. Initialize local root CA
 New-Item -ItemType Directory -Force -Path certs
 modeltap ca-init `
   --cert certs\modeltap-ca-cert.pem `
   --key certs\modeltap-ca-key.pem
+
+# 3. Copy sample configuration and validate
 Copy-Item config.sample.yaml config.yaml
 modeltap validate --config config.yaml
+
+# 4. Run ModelTap
 modeltap run --config config.yaml</code></pre>
 
-  <p>Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment. The bundled configuration uses a sample <code>privoxy</code> egress route; set <code>egress.default: direct</code> if you do not use an upstream proxy. Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code>; source <code>modeltap.bash</code>, <code>_modeltap</code>, <code>modeltap.fish</code>, or <code>modeltap.ps1</code> for Bash, Zsh, Fish, or PowerShell.</p>
+  <p>Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment (edit <code>$(brew --prefix)/etc/modeltap/config.yaml</code> on macOS/Linux or <code>config.yaml</code> on Windows). The bundled configuration uses a sample <code>privoxy</code> egress route; set <code>egress.default: direct</code> if you do not use an upstream proxy. Use <code>modeltap validate --config &lt;CONFIG&gt;</code> to check YAML syntax, site and egress validation, and pricing rules without binding a listener or reading certificate files. Shell completions are included in <code>completions/</code> (and installed automatically by Homebrew on macOS/Linux); source <code>modeltap.bash</code>, <code>_modeltap</code>, <code>modeltap.fish</code>, or <code>modeltap.ps1</code> for Bash, Zsh, Fish, or PowerShell.</p>
   <p>Set your browser, CLI, or SDK HTTP proxy to <code>http://127.0.0.1:2080</code>. Every host configured under <code>sites</code> is decrypted; other CONNECT tunnels remain transparent.</p>
   <p>Each <code>hosts</code> entry is a domain root and includes all subdomains at a DNS label boundary. For example, <code>googleapis.com</code> includes <code>generativelanguage.googleapis.com</code>, but does not match <code>notgoogleapis.com</code>. Overlapping domain trees across sites are rejected.</p>
   <p>The inbound proxy does not require client authentication, including on a non-loopback listener such as <code>0.0.0.0:2080</code>. Protect non-loopback listeners with a host firewall, private network, or another trusted access-control layer to avoid running an open proxy.</p>
@@ -115,12 +123,13 @@ modeltap run --config config.yaml</code></pre>
 
   <ul>
     <li>
-      <p><strong>macOS</strong>: Import <code>certs/modeltap-ca-cert.pem</code> into the System keychain with Keychain Access or <code>security</code>:</p>
-      <pre><code>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/modeltap-ca-cert.pem</code></pre>
+      <p><strong>macOS</strong>: Import the generated CA certificate into the System keychain with Keychain Access or <code>security</code>:</p>
+      <pre><code>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+  "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"</code></pre>
     </li>
     <li>
-      <p><strong>Linux</strong>: Copy <code>certs/modeltap-ca-cert.pem</code> to <code>/usr/local/share/ca-certificates/modeltap-ca-cert.crt</code> and update CA certificates:</p>
-      <pre><code>sudo cp certs/modeltap-ca-cert.pem /usr/local/share/ca-certificates/modeltap-ca-cert.crt
+      <p><strong>Linux</strong>: Copy the CA certificate to <code>/usr/local/share/ca-certificates/modeltap-ca-cert.crt</code> and update CA certificates:</p>
+      <pre><code>sudo cp "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" /usr/local/share/ca-certificates/modeltap-ca-cert.crt
 sudo update-ca-certificates</code></pre>
     </li>
     <li>
@@ -138,14 +147,14 @@ certutil -addstore -user Root certs\modeltap-ca-cert.pem</code></pre>
   <p>Node.js uses its own CA bundle and does not trust locally installed root CAs by default. Point <code>NODE_EXTRA_CA_CERTS</code> at the absolute path of the ModelTap CA, then restart your agent or background daemon:</p>
 
   <h3>macOS / Linux (Bash / Zsh)</h3>
-  <pre><code>export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
+  <pre><code>export NODE_EXTRA_CA_CERTS="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
 export HTTP_PROXY=http://127.0.0.1:2080
 export HTTPS_PROXY=http://127.0.0.1:2080
 export PI_PROXY=http://127.0.0.1:2080
 omp</code></pre>
 
   <h3>macOS / Linux (Fish)</h3>
-  <pre><code>set -x NODE_EXTRA_CA_CERTS (pwd)/certs/modeltap-ca-cert.pem
+  <pre><code>set -x NODE_EXTRA_CA_CERTS (brew --prefix)/etc/modeltap/certs/ca-cert.pem
 set -x HTTP_PROXY http://127.0.0.1:2080
 set -x HTTPS_PROXY http://127.0.0.1:2080
 set -x PI_PROXY http://127.0.0.1:2080
@@ -170,11 +179,11 @@ omp</code></pre>
   <h3>Python & other CLI tools</h3>
   <ul>
     <li><strong>Python (Requests / HTTPX / OpenAI SDK / Anthropic SDK)</strong>:
-      <br>macOS / Linux (Bash): <code>export REQUESTS_CA_BUNDLE="$(pwd)/certs/modeltap-ca-cert.pem" SSL_CERT_FILE="$(pwd)/certs/modeltap-ca-cert.pem"</code>
+      <br>macOS / Linux (Bash): <code>export REQUESTS_CA_BUNDLE="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" SSL_CERT_FILE="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"</code>
       <br>Windows (PowerShell): <code>$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"</code>
     </li>
     <li><strong>Git</strong>:
-      <br>macOS / Linux (Bash): <code>git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"</code>
+      <br>macOS / Linux (Bash): <code>git config --global http.sslCAInfo "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"</code>
       <br>Windows (PowerShell): <code>git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"</code>
     </li>
   </ul>

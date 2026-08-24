@@ -47,46 +47,55 @@ Install ModelTap and create the local root CA once. Keep the private key secret 
 ### macOS / Linux
 
 ```shell
+# 1. Install via Homebrew (automatically generates config.yaml and CA certificates in $(brew --prefix)/etc/modeltap/)
 brew install tenfyzhong/tap/modeltap
-mkdir -p certs
-modeltap ca-init \
-  --cert certs/modeltap-ca-cert.pem \
-  --key certs/modeltap-ca-key.pem
-cp config.sample.yaml config.yaml
-modeltap validate --config config.yaml
-modeltap run --config config.yaml
+
+# 2. Validate configuration
+modeltap validate --config "$(brew --prefix)/etc/modeltap/config.yaml"
+
+# 3. Run ModelTap (interactive or background service)
+modeltap run --config "$(brew --prefix)/etc/modeltap/config.yaml"
+# or start in background:
+brew services start tenfyzhong/tap/modeltap
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-# Install from source or download the prebuilt binary from Releases
+# 1. Install from source or download the prebuilt binary from Releases
 cargo install --path .
+
+# 2. Initialize local root CA
 New-Item -ItemType Directory -Force -Path certs
 modeltap ca-init `
   --cert certs\modeltap-ca-cert.pem `
   --key certs\modeltap-ca-key.pem
+
+# 3. Copy sample configuration and validate
 Copy-Item config.sample.yaml config.yaml
 modeltap validate --config config.yaml
+
+# 4. Run ModelTap
 modeltap run --config config.yaml
 ```
 
-Before starting the proxy, open `config.yaml` and set the telemetry endpoint, egress route, and pricing rules for your environment. The bundled configuration uses a sample `privoxy` egress route; set `egress.default: direct` if you do not use an upstream proxy. `modeltap validate --config <CONFIG>` checks YAML, site/egress validation, and pricing rules without binding a listener or reading certificate files.
+Before starting the proxy, set the telemetry endpoint, egress route, and pricing rules for your environment (edit `$(brew --prefix)/etc/modeltap/config.yaml` on macOS/Linux or `config.yaml` on Windows). The bundled configuration uses a sample `privoxy` egress route; set `egress.default: direct` if you do not use an upstream proxy. `modeltap validate --config <CONFIG>` checks YAML, site/egress validation, and pricing rules without binding a listener or reading certificate files.
 
-Shell completions are included in `completions/`. Load the appropriate file with `source completions/modeltap.bash`, `source completions/_modeltap`, `source completions/modeltap.fish`, or `. completions/modeltap.ps1` for Bash, Zsh, Fish, or PowerShell respectively.
+Shell completions are included in `completions/` (and installed automatically by Homebrew on macOS/Linux). For manual shells, load `source completions/modeltap.bash`, `source completions/_modeltap`, `source completions/modeltap.fish`, or `. completions/modeltap.ps1` for Bash, Zsh, Fish, or PowerShell respectively.
 
 ### Installing and trusting the local root CA
 
 To allow TLS interception without certificate verification errors:
 
-- **macOS**: Import `certs/modeltap-ca-cert.pem` into the System keychain with Keychain Access or `security`:
+- **macOS**: Import the generated CA certificate into the System keychain with Keychain Access or `security`:
   ```shell
-  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/modeltap-ca-cert.pem
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+    "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
   ```
 
-- **Linux**: Copy `certs/modeltap-ca-cert.pem` to `/usr/local/share/ca-certificates/modeltap-ca-cert.crt` and update CA certificates:
+- **Linux**: Copy the CA certificate to `/usr/local/share/ca-certificates/modeltap-ca-cert.crt` and update CA certificates:
   ```shell
-  sudo cp certs/modeltap-ca-cert.pem /usr/local/share/ca-certificates/modeltap-ca-cert.crt
+  sudo cp "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" /usr/local/share/ca-certificates/modeltap-ca-cert.crt
   sudo update-ca-certificates
   ```
 
@@ -110,7 +119,7 @@ Node.js uses its own bundled CA store and does not read system root stores by de
 
 **macOS / Linux (Bash / Zsh)**:
 ```shell
-export NODE_EXTRA_CA_CERTS="$(pwd)/certs/modeltap-ca-cert.pem"
+export NODE_EXTRA_CA_CERTS="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
 export HTTP_PROXY=http://127.0.0.1:2080
 export HTTPS_PROXY=http://127.0.0.1:2080
 export PI_PROXY=http://127.0.0.1:2080
@@ -119,7 +128,7 @@ omp
 
 **macOS / Linux (Fish)**:
 ```shell
-set -x NODE_EXTRA_CA_CERTS (pwd)/certs/modeltap-ca-cert.pem
+set -x NODE_EXTRA_CA_CERTS (brew --prefix)/etc/modeltap/certs/ca-cert.pem
 set -x HTTP_PROXY http://127.0.0.1:2080
 set -x HTTPS_PROXY http://127.0.0.1:2080
 set -x PI_PROXY http://127.0.0.1:2080
@@ -155,10 +164,10 @@ oh-my-pi uses a dedicated HTTP/2 transport for Cursor Agent requests; setting `P
 #### Python & other CLI tools
 
 - **Python (Requests / HTTPX / OpenAI SDK / Anthropic SDK)**:
-  - macOS / Linux (Bash): `export REQUESTS_CA_BUNDLE="$(pwd)/certs/modeltap-ca-cert.pem" SSL_CERT_FILE="$(pwd)/certs/modeltap-ca-cert.pem"`
+  - macOS / Linux (Bash): `export REQUESTS_CA_BUNDLE="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" SSL_CERT_FILE="$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"`
   - Windows (PowerShell): `$env:REQUESTS_CA_BUNDLE = "$pwd\certs\modeltap-ca-cert.pem"; $env:SSL_CERT_FILE = "$pwd\certs\modeltap-ca-cert.pem"`
 - **Git**:
-  - macOS / Linux (Bash): `git config --global http.sslCAInfo "$(pwd)/certs/modeltap-ca-cert.pem"`
+  - macOS / Linux (Bash): `git config --global http.sslCAInfo "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"`
   - Windows (PowerShell): `git config --global http.sslCAInfo "$pwd\certs\modeltap-ca-cert.pem"`
 
 ### Running as a background service
@@ -390,14 +399,15 @@ stream disconnected before completion: invalid peer certificate: BadSignature
 2. Re-install and trust the active ModelTap root CA certificate:
 
    ```shell
-   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <path-to-ca-cert.pem>
+   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+     "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
    ```
 
 3. Verify that the serial number and public key match between the Keychain and your CA certificate file:
 
    ```shell
    security find-certificate -c "modeltap local CA" -p | openssl x509 -noout -serial -pubkey
-   openssl x509 -in <path-to-ca-cert.pem> -noout -serial -pubkey
+   openssl x509 -in "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem" -noout -serial -pubkey
    ```
 
 ### Codex fails with `invalid peer certificate: UnknownIssuer`
@@ -416,14 +426,15 @@ stream disconnected before completion: invalid peer certificate: UnknownIssuer
 - **System-wide trust (recommended)**: Run with `sudo` to write to the admin trust settings:
 
   ```shell
-  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <path-to-ca-cert.pem>
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+    "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
   ```
 
 - **User-level trust**: Run without `-d` (and without `sudo`), which triggers a macOS password / Touch ID prompt to authorize user trust:
 
   ```shell
-  security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db <path-to-ca-cert.pem>
-  ```
+  security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db \
+    "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
 
 - **Verify trust settings**: Confirm that `modeltap local CA` appears in trust settings:
 
