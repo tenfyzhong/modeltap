@@ -184,11 +184,15 @@ fn dashboard_variables_use_explicit_label_value_queries() {
         .collect::<Vec<_>>();
     assert_eq!(names, ["agent_cli", "site", "model"]);
 
-    for (name, label) in [
-        ("agent_cli", "agent_cli"),
-        ("site", "site"),
-        ("model", "model"),
-    ] {
+    let agent_cli = variables
+        .iter()
+        .find(|variable| variable["name"] == "agent_cli")
+        .unwrap();
+    assert_eq!(agent_cli["query"]["query"], "label_values(agent_cli)");
+    assert_eq!(agent_cli["definition"], "label_values(agent_cli)");
+    assert_eq!(agent_cli["query"]["qryType"], 1);
+
+    for (name, label) in [("site", "site"), ("model", "model")] {
         let variable = variables
             .iter()
             .find(|variable| variable["name"] == name)
