@@ -30,10 +30,12 @@ async fn mitm_forwards_an_http_request_and_streaming_sse_response() {
                 break;
             }
         }
+        let request = String::from_utf8(request).unwrap();
+        assert!(request.starts_with("GET /v1/chat/completions HTTP/1.1"));
         assert!(
-            String::from_utf8(request)
-                .unwrap()
-                .starts_with("GET /v1/chat/completions HTTP/1.1")
+            request
+                .to_ascii_lowercase()
+                .contains("accept-encoding: identity")
         );
         stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: 10\r\n\r\ndata: ok\n\n").await.unwrap();
     });
@@ -70,7 +72,7 @@ async fn mitm_forwards_an_http_request_and_streaming_sse_response() {
         )
         .await
         .unwrap();
-    client.write_all(b"GET /v1/chat/completions HTTP/1.1\r\nHost: api.openai.com\r\nConnection: close\r\n\r\n").await.unwrap();
+    client.write_all(b"GET /v1/chat/completions HTTP/1.1\r\nHost: api.openai.com\r\nAccept-Encoding: gzip\r\nConnection: close\r\n\r\n").await.unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).await.unwrap();
     let response = String::from_utf8(response).unwrap();

@@ -37,7 +37,7 @@ fn automatically_detects_anthropic_sse_completion() {
 }
 
 #[test]
-fn processes_all_completed_sse_events_in_a_single_body_chunk() {
+fn ignores_sse_events_after_the_response_has_completed() {
     let mut parser = AutoStreamUsageParser::new();
     let (_, usage) = parser
         .push(
@@ -46,7 +46,8 @@ fn processes_all_completed_sse_events_in_a_single_body_chunk() {
         .unwrap();
 
     assert_eq!(usage.model.as_deref(), Some("gpt-5-mini"));
-    assert_eq!(usage.tokens.output, 20);
+    assert_eq!(usage.tokens.output, 10);
+    assert!(parser.finish().is_none());
 }
 
 #[test]
@@ -144,6 +145,30 @@ fn parses_cursor_connect_usage_for_any_requested_model() {
             .push_response(&connect_frame(&server_message))
             .is_none()
     );
+}
+
+#[test]
+fn parses_every_cursor_token_delta_in_a_single_transport_chunk() {
+    let mut parser = CursorUsageParser::new();
+    let model = "glm-4.7";
+    let model_details = protobuf_length_field(1, model.as_bytes());
+    let run_request = protobuf_length_field(3, &model_details);
+    let client_message = protobuf_length_field(1, &run_request);
+    parser.push_request(&connect_frame(&client_message));
+
+    let first_delta = protobuf_varint_field(1, 37);
+    let first_interaction = protobuf_length_field(8, &first_delta);
+    let first = connect_frame(&protobuf_length_field(1, &first_interaction));
+    let second_delta = protobuf_varint_field(1, 42);
+    let second_interaction = protobuf_length_field(8, &second_delta);
+    let second = connect_frame(&protobuf_length_field(1, &second_interaction));
+    let mut chunk = first;
+    chunk.extend(second);
+
+    let usages = parser.push_responses(&chunk);
+    assert_eq!(usages.len(), 2);
+    assert_eq!(usages[0].tokens.output, 37);
+    assert_eq!(usages[1].tokens.output, 42);
 }
 
 #[test]
@@ -305,6 +330,24 @@ fn retains_buffered_websocket_frames_after_reporting_usage() {
 
     assert_eq!(parser.push(&frames).unwrap().1.tokens.output, 10);
     assert_eq!(parser.push(&[]).unwrap().1.tokens.output, 20);
+}
+
+#[test]
+fn parses_every_websocket_usage_frame_in_a_single_transport_chunk() {
+    let first = websocket_text_frame(
+        br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","usage":{"input_tokens":100,"output_tokens":10}}}"#,
+    );
+    let second = websocket_text_frame(
+        br#"{"type":"response.completed","response":{"model":"gpt-5.6-terra","usage":{"input_tokens":100,"output_tokens":20}}}"#,
+    );
+    let mut parser = WebSocketUsageParser::new();
+    let mut frames = first;
+    frames.extend(second);
+
+    let usages = parser.push_all(&frames);
+    assert_eq!(usages.len(), 2);
+    assert_eq!(usages[0].1.tokens.output, 10);
+    assert_eq!(usages[1].1.tokens.output, 20);
 }
 
 #[test]

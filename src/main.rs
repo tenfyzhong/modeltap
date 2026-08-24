@@ -76,7 +76,15 @@ async fn run(config_file: &str) -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(|tls| MitmAuthority::from_pem_files(&tls.ca_cert_file, &tls.ca_key_file).map(Arc::new))
         .transpose()?;
-    modeltap::proxy::run(config, mitm_authority, telemetry, prices).await?;
+    tokio::select! {
+        result = modeltap::proxy::run(config, mitm_authority, telemetry.clone(), prices) => result?,
+        result = tokio::signal::ctrl_c() => {
+            result?;
+            if let Some(telemetry) = telemetry {
+                telemetry.force_flush()?;
+            }
+        }
+    }
     Ok(())
 }
 

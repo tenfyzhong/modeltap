@@ -10,8 +10,8 @@ use crate::usage::{
 };
 use bytes::Bytes;
 use http::header::{
-    CONNECTION, CONTENT_TYPE, HOST, PROXY_AUTHORIZATION, SEC_WEBSOCKET_EXTENSIONS, UPGRADE,
-    USER_AGENT,
+    ACCEPT_ENCODING, CONNECTION, CONTENT_TYPE, HOST, PROXY_AUTHORIZATION, SEC_WEBSOCKET_EXTENSIONS,
+    UPGRADE, USER_AGENT,
 };
 use http::{HeaderMap, HeaderValue, Request, Response, Uri};
 use http_body_util::combinators::BoxBody;
@@ -259,8 +259,12 @@ async fn forward_mitm_request(
         observer
     });
     let cursor_usage = is_cursor_connect.then(|| Arc::new(Mutex::new(CursorUsageParser::new())));
-    let cursor_request_observer = is_cursor_connect.then_some(observer.clone()).flatten();
     let upgrade_requested = websocket_upgrade_requested(&request);
+    if !upgrade_requested {
+        request
+            .headers_mut()
+            .insert(ACCEPT_ENCODING, HeaderValue::from_static("identity"));
+    }
     let client_upgrade = upgrade_requested.then(|| hyper::upgrade::on(&mut request));
     debug!(method = %method, target = %target, "forwarding MITM HTTP request");
     let request_method = method.clone();
@@ -278,17 +282,9 @@ async fn forward_mitm_request(
                     content = %body_preview(data, BODY_PREVIEW_LIMIT),
                     "processing request body chunk"
                 );
-                if let (Some(parser), Some(observer)) = (
-                    cursor_request_parser.as_ref(),
-                    cursor_request_observer.as_ref(),
-                ) {
+                if let Some(parser) = cursor_request_parser.as_ref() {
                     if let Ok(mut parser) = parser.lock() {
-                        if let Some(model) = parser.push_request(data) {
-                            if !parser.request_reported() {
-                                parser.mark_request_reported();
-                                observer.record(&model, &crate::usage::TokenUsage::default());
-                            }
-                        }
+                        let _ = parser.push_request(data);
                     }
                 }
                 if let (Some(observer), Some(started)) =
@@ -315,7 +311,7 @@ async fn forward_mitm_request(
                 .headers()
                 .get(CONTENT_TYPE)
                 .and_then(|value| value.to_str().ok())
-                .is_some_and(|value| value.starts_with("text/event-stream"));
+                .is_some_and(is_sse_content_type);
             let is_json = response
                 .headers()
                 .get(CONTENT_TYPE)
@@ -407,7 +403,7 @@ async fn forward_mitm_request(
                                 frame.data_ref(),
                             ) {
                                 if let Ok(mut parser) = parser.lock() {
-                                    if let Some(usage) = parser.push_response(data) {
+                                    for usage in parser.push_responses(data) {
                                         let model = usage.model.as_deref().unwrap_or("unknown");
                                         if parser.request_reported() {
                                             observer.record_tokens(model, &usage.tokens);
@@ -538,6 +534,14 @@ pub fn is_json_content_type(value: &str) -> bool {
         || media_type.to_ascii_lowercase().ends_with("+json")
 }
 
+pub fn is_sse_content_type(value: &str) -> bool {
+    value
+        .split_once(';')
+        .map_or(value, |(media_type, _)| media_type)
+        .trim()
+        .eq_ignore_ascii_case("text/event-stream")
+}
+
 pub fn should_parse_direct_json_usage(attempted: bool, data: &[u8]) -> bool {
     !attempted && !data.is_empty()
 }
@@ -635,7 +639,7 @@ where
                 "processing WebSocket server frame bytes"
             );
             if let Some((parser, observer)) = parser.as_mut() {
-                if let Some((_protocol, usage)) = parser.push(data) {
+                for (_protocol, usage) in parser.push_all(data) {
                     observer.record(usage.model.as_deref().unwrap_or("unknown"), &usage.tokens);
                 }
             }
@@ -970,7 +974,8 @@ fn parse_request_line(request: &str) -> Result<(&str, &str), ProxyError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_cli, is_json_content_type, should_parse_direct_json_usage, tunnel_websocket,
+        agent_cli, is_json_content_type, is_sse_content_type, should_parse_direct_json_usage,
+        tunnel_websocket,
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -1125,6 +1130,13 @@ mod tests {
         assert!(is_json_content_type("application/problem+json"));
         assert!(!is_json_content_type("text/plain"));
         assert!(!is_json_content_type("application/octet-stream"));
+    }
+
+    #[test]
+    fn identifies_sse_media_types_case_insensitively() {
+        assert!(is_sse_content_type("text/event-stream; charset=utf-8"));
+        assert!(is_sse_content_type("Text/Event-Stream"));
+        assert!(!is_sse_content_type("application/json"));
     }
 
     #[test]

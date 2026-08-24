@@ -1,6 +1,7 @@
 use flate2::{Decompress, FlushDecompress};
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TokenUsage {
@@ -254,12 +255,17 @@ impl CursorUsageParser {
     }
 
     pub fn push_response(&mut self, bytes: &[u8]) -> Option<ParsedUsage> {
+        self.push_responses(bytes).into_iter().next()
+    }
+
+    pub fn push_responses(&mut self, bytes: &[u8]) -> Vec<ParsedUsage> {
         let mut buffer = std::mem::take(&mut self.response_buffer);
         buffer.extend_from_slice(bytes);
         if oversized_connect_message(&buffer) {
-            return None;
+            return Vec::new();
         }
         let mut consumed = 0;
+        let mut usages = Vec::new();
         while let Some(message) = connect_message(&buffer[consumed..]) {
             consumed += message.len() + 5;
             let Some(interaction) = protobuf_length_field(message, 1) else {
@@ -268,21 +274,18 @@ impl CursorUsageParser {
             if let Some(token_delta) = protobuf_length_field(interaction, 8)
                 .and_then(|value| protobuf_varint_field(value, 1))
             {
-                let usage = ParsedUsage {
+                usages.push(ParsedUsage {
                     model: self.model.clone(),
                     tokens: TokenUsage {
                         output: token_delta,
                         ..TokenUsage::default()
                     },
-                };
-                compact_buffer(&mut buffer, consumed);
-                self.response_buffer = buffer;
-                return Some(usage);
+                });
             }
         }
         compact_buffer(&mut buffer, consumed);
         self.response_buffer = buffer;
-        None
+        usages
     }
 
     pub fn request_reported(&self) -> bool {
@@ -375,6 +378,9 @@ impl AutoStreamUsageParser {
     }
 
     fn process_event(&mut self, event: SseEvent) -> Option<(Provider, ParsedUsage)> {
+        if self.reported {
+            return None;
+        }
         if let Some(value) = event.value {
             if self.model.is_none() {
                 self.model = model_from_value(&value);
@@ -586,6 +592,7 @@ pub struct WebSocketUsageParser {
     fragments: Vec<u8>,
     sse: AutoStreamUsageParser,
     permessage_deflate: Option<PerMessageDeflate>,
+    pending: VecDeque<(Provider, ParsedUsage)>,
 }
 
 impl Default for WebSocketUsageParser {
@@ -618,13 +625,21 @@ impl WebSocketUsageParser {
                     output: Vec::new(),
                 }
             }),
+            pending: VecDeque::new(),
         }
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> Option<(Provider, ParsedUsage)> {
+        let usages = self.push_all(bytes);
+        self.pending.extend(usages);
+        self.pending.pop_front()
+    }
+
+    pub fn push_all(&mut self, bytes: &[u8]) -> Vec<(Provider, ParsedUsage)> {
         let mut buffer = std::mem::take(&mut self.buffer);
         buffer.extend_from_slice(bytes);
         let mut consumed = 0;
+        let mut usages = Vec::new();
         while let Some(frame) = websocket_frame(&buffer[consumed..]) {
             let payload_start = consumed + frame.payload_start;
             let payload_end = payload_start + frame.payload_length;
@@ -644,14 +659,12 @@ impl WebSocketUsageParser {
                 )
             };
             if let Some(usage) = usage {
-                compact_websocket_buffer(&mut buffer, consumed);
-                self.buffer = buffer;
-                return Some(usage);
+                usages.push(usage);
             }
         }
         compact_websocket_buffer(&mut buffer, consumed);
         self.buffer = buffer;
-        None
+        usages
     }
 
     fn process_frame(
