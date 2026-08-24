@@ -10,7 +10,7 @@ to Grafana or any OTLP/HTTP-compatible backend.
 **No SDK. No agent patches. No vendor-specific telemetry integration.**
 
 <p align="center">
-  <img src="grafana/dashboard-preview.svg" alt="Illustrative ModelTap Grafana dashboard showing token usage and estimated cost by agent and model" width="100%">
+  <img src="https://tenfy.cn/picture/modeltap-grafana-dashboard.png" alt="ModelTap Grafana dashboard showing QPS, token usage, estimated cost, and agent breakdowns" width="100%">
 </p>
 
 ModelTap recognizes OpenAI, Anthropic, Gemini, and DeepSeek API usage; detects
