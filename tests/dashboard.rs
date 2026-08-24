@@ -32,7 +32,7 @@ fn dashboard_uses_the_selected_time_range_for_cost_totals() {
 
     assert_eq!(
         panel["targets"][0]["expr"],
-        "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))"
+        "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))"
     );
     assert_eq!(panel["targets"][0]["instant"], true);
 }
@@ -84,21 +84,17 @@ fn dashboard_has_cumulative_cost_by_agent_cli_site_model_and_type() {
 }
 
 #[test]
-fn dashboard_places_selected_range_totals_at_the_bottom() {
+fn dashboard_places_selected_range_totals_above_the_collapsed_performance_row() {
     let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
         .expect("dashboard JSON is valid");
     let panels = dashboard["panels"].as_array().unwrap();
     let token_totals = panels.iter().find(|panel| panel["id"] == 7).unwrap();
     let cost_totals = panels.iter().find(|panel| panel["id"] == 6).unwrap();
-    let highest_other_y = panels
-        .iter()
-        .filter(|panel| ![6, 7].contains(&panel["id"].as_i64().unwrap()))
-        .map(|panel| panel["gridPos"]["y"].as_i64().unwrap())
-        .max()
-        .unwrap();
+    let performance_row = panels.iter().find(|panel| panel["id"] == 20).unwrap();
 
-    assert!(token_totals["gridPos"]["y"].as_i64().unwrap() > highest_other_y);
-    assert!(cost_totals["gridPos"]["y"].as_i64().unwrap() > highest_other_y);
+    assert_eq!(token_totals["gridPos"]["y"], 47);
+    assert_eq!(cost_totals["gridPos"]["y"], 47);
+    assert_eq!(performance_row["gridPos"]["y"], 55);
 }
 
 #[test]
@@ -114,7 +110,7 @@ fn dashboard_groups_cost_by_site_and_model() {
 
     assert_eq!(
         panel["targets"][0]["expr"],
-        "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))"
+        "sum by (site, model) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range]))"
     );
     assert_eq!(panel["targets"][0]["legendFormat"], "{{site}} / {{model}}");
 }
@@ -169,7 +165,7 @@ fn dashboard_filters_metrics_by_agent_cli_and_shows_total_range_tokens() {
         .unwrap();
     assert_eq!(
         total_tokens["targets"][0]["expr"],
-        "sum(increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__range]))"
+        "sum(increase({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[$__range]))"
     );
 }
 
@@ -275,7 +271,7 @@ fn dashboard_shows_p95_modeltap_chunk_processing_duration_in_microseconds() {
     assert_eq!(panel["gridPos"]["x"], 0);
     assert_eq!(
         panel["targets"][0]["expr"],
-        "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\"}[$__rate_interval])))"
+        "histogram_quantile(0.95, sum by (le, site) (rate(ai_proxy_local_processing_duration_microseconds_bucket{site=~\"$site\", agent_cli!~\"benchmark_client|test_client\"}[$__rate_interval])))"
     );
     assert_eq!(panel["targets"][0]["legendFormat"], "{{site}}");
 }
@@ -303,7 +299,7 @@ fn dashboard_shows_average_modeltap_chunk_processing_duration_in_microseconds() 
     assert_eq!(panel["targets"][0]["legendFormat"], "{{site}}");
     assert_eq!(
         panel["targets"][0]["expr"],
-        "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\"}[$__rate_interval]))"
+        "sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_sum{site=~\"$site\", agent_cli!~\"benchmark_client|test_client\"}[$__rate_interval])) / sum by (site) (rate(ai_proxy_local_processing_duration_microseconds_count{site=~\"$site\", agent_cli!~\"benchmark_client|test_client\"}[$__rate_interval]))"
     );
 }
 
@@ -318,7 +314,7 @@ fn dashboard_shows_qps_by_model_using_rate_so_idle_periods_drop_to_zero() {
     assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "ops");
     assert_eq!(
         panel["targets"][0]["expr"],
-        "sum by (site, model) (rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
+        "sum by (site, model) (rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
     );
     assert_eq!(panel["targets"][0]["legendFormat"], "{{site}} / {{model}}");
 }
@@ -334,7 +330,7 @@ fn dashboard_shows_qps_stat_using_rate_so_idle_periods_drop_to_zero() {
     assert_eq!(panel["fieldConfig"]["defaults"]["unit"], "ops");
     assert_eq!(
         panel["targets"][0]["expr"],
-        "sum(rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
+        "sum(rate({__name__=~\"ai_proxy_requests(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
     );
 }
 
@@ -355,7 +351,7 @@ fn dashboard_has_realtime_token_and_cost_breakdowns_by_agent_cli_site_model_and_
     assert_eq!(token_panel["fieldConfig"]["defaults"]["unit"], "short");
     assert_eq!(
         token_panel["targets"][0]["expr"],
-        "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
+        "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_tokens(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\"}[$__rate_interval]))"
     );
     assert_eq!(
         token_panel["targets"][0]["legendFormat"],
@@ -373,7 +369,7 @@ fn dashboard_has_realtime_token_and_cost_breakdowns_by_agent_cli_site_model_and_
     assert_eq!(cost_panel["fieldConfig"]["defaults"]["unit"], "currencyUSD");
     assert_eq!(
         cost_panel["targets"][0]["expr"],
-        "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__rate_interval]))"
+        "sum by (agent_cli, site, model, type) (rate({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__rate_interval]))"
     );
     assert_eq!(
         cost_panel["targets"][0]["legendFormat"],
@@ -395,12 +391,14 @@ fn dashboard_uses_a_collapsed_performance_row_and_a_second_row_qps_chart() {
     assert_eq!(top_agent["fieldConfig"]["defaults"]["unit"], "currencyUSD");
     assert_eq!(
         top_agent["targets"][0]["expr"],
-        "topk(1, sum by (agent_cli) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range])))"
+        "topk(1, sum by (agent_cli) (increase({__name__=~\"ai_proxy_cost(_total)?\", site=~\"$site\", model=~\"$model\", agent_cli!~\"benchmark_client|test_client\", agent_cli=~\"$agent_cli\", currency=\"USD\"}[$__range])))"
     );
 
-    assert!(panels
-        .iter()
-        .all(|panel| ![18, 19].contains(&panel["id"].as_i64().unwrap())));
+    assert!(
+        panels
+            .iter()
+            .all(|panel| ![18, 19].contains(&panel["id"].as_i64().unwrap()))
+    );
 
     let qps_by_model = panels
         .iter()
@@ -417,10 +415,44 @@ fn dashboard_uses_a_collapsed_performance_row_and_a_second_row_qps_chart() {
     assert_eq!(performance_row["type"], "row");
     assert_eq!(performance_row["title"], "Performance");
     assert_eq!(performance_row["collapsed"], true);
-    assert_eq!(performance_row["gridPos"]["y"], 47);
+    assert_eq!(performance_row["gridPos"]["y"], 55);
+
+    for panel_id in [6, 7] {
+        let panel = panels
+            .iter()
+            .find(|panel| panel["id"] == panel_id)
+            .expect("selected-range totals panel exists");
+        assert_eq!(panel["gridPos"]["y"], 47);
+    }
 
     let row_panels = performance_row["panels"].as_array().unwrap();
     assert_eq!(row_panels.len(), 2);
     assert!(row_panels.iter().any(|panel| panel["id"] == 13));
     assert!(row_panels.iter().any(|panel| panel["id"] == 14));
+}
+
+#[test]
+fn dashboard_excludes_internal_agents_from_every_metric_panel() {
+    fn assert_panels_exclude_internal_agents(panels: &[Value]) {
+        for panel in panels {
+            if let Some(targets) = panel["targets"].as_array() {
+                for target in targets {
+                    let expression = target["expr"].as_str().unwrap();
+                    assert!(
+                        expression.contains("agent_cli!~\"benchmark_client|test_client\""),
+                        "{} does not exclude internal agents",
+                        panel["title"]
+                    );
+                }
+            }
+
+            if let Some(nested_panels) = panel["panels"].as_array() {
+                assert_panels_exclude_internal_agents(nested_panels);
+            }
+        }
+    }
+
+    let dashboard: Value = serde_json::from_str(include_str!("../grafana/modeltap-dashboard.json"))
+        .expect("dashboard JSON is valid");
+    assert_panels_exclude_internal_agents(dashboard["panels"].as_array().unwrap());
 }

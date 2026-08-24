@@ -58,6 +58,11 @@ async fn exports_usage_metrics_to_the_alloy_otlp_http_path() {
                 .any(|bytes| bytes == b"codex")
         );
         assert!(
+            request
+                .windows(b"duration_observer".len())
+                .any(|bytes| bytes == b"duration_observer")
+        );
+        assert!(
             !request
                 .windows(b"provider".len())
                 .any(|bytes| bytes == b"provider")
@@ -90,7 +95,7 @@ async fn exports_usage_metrics_to_the_alloy_otlp_http_path() {
     );
     telemetry.record_response_duration("openai", 0.042);
     telemetry.record_processing_duration("openai", 123);
-    telemetry.record_local_processing_duration("openai", 0.5);
+    telemetry.record_local_processing_duration("openai", "duration_observer", 0.5);
     telemetry.force_flush().unwrap();
     receiver.await.unwrap();
 }

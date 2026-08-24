@@ -150,7 +150,6 @@ async fn handle_connection_with_telemetry(
                 telemetry: telemetry.clone(),
                 prices,
                 site: site.id.clone(),
-                local_processing_attributes: [KeyValue::new("site", site.id.clone())],
                 agent_cli: "unknown".to_owned(),
             })
         });
@@ -659,7 +658,6 @@ pub struct UsageObserver {
     telemetry: Arc<Telemetry>,
     prices: Arc<PriceBook>,
     site: String,
-    local_processing_attributes: [KeyValue; 1],
     agent_cli: String,
 }
 
@@ -669,7 +667,6 @@ impl UsageObserver {
         Self {
             telemetry,
             prices,
-            local_processing_attributes: [KeyValue::new("site", site.clone())],
             site,
             agent_cli: "unknown".to_owned(),
         }
@@ -696,7 +693,10 @@ impl UsageObserver {
         self.telemetry
             .record_local_processing_duration_with_attributes(
                 microseconds,
-                &self.local_processing_attributes,
+                &[
+                    KeyValue::new("site", self.site.clone()),
+                    KeyValue::new("agent_cli", self.agent_cli.clone()),
+                ],
             );
     }
 
