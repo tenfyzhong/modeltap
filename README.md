@@ -446,12 +446,88 @@ stream disconnected before completion: invalid peer certificate: UnknownIssuer
   ```shell
   security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db \
     "$(brew --prefix)/etc/modeltap/certs/ca-cert.pem"
+  ```
 
 - **Verify trust settings**: Confirm that `modeltap local CA` appears in trust settings:
 
   ```shell
   security dump-trust-settings -d | grep -A 2 "modeltap local CA" || security dump-trust-settings | grep -A 2 "modeltap local CA"
   ```
+
+### Pi fails with `fetch failed` even when `NODE_EXTRA_CA_CERTS` is set
+
+**Symptom**: Codex and oh-my-pi work through ModelTap, but the `pi` CLI repeatedly reports:
+
+```text
+Error: fetch failed
+Error: Retry failed after 3 attempts: Retry cancelled
+```
+
+Undici diagnostics may expose the underlying TLS error:
+
+```text
+CERT_SIGNATURE_FAILURE: certificate signature failure
+```
+
+**Cause**: These clients do not share a TLS implementation. Codex uses a native Rust HTTP stack, oh-my-pi uses Bun and BoringSSL, and Pi uses Node.js with Undici's `EnvHttpProxyAgent`. In affected Pi/Undici combinations, `NODE_EXTRA_CA_CERTS` is not applied to the TLS context created inside the HTTP proxy tunnel. Setting `SSL_CERT_FILE` makes the CA available to that context, but setting it globally can replace the trust bundle used by other OpenSSL-based tools.
+
+A second failure mode occurs when the public CA bundle already contains an older certificate named `modeltap local CA`. Simply appending the active certificate leaves two issuers with the same subject but different keys, and OpenSSL may select the stale issuer. The following setup removes any stale ModelTap CA from the public bundle before adding the active certificate.
+
+**Resolution for Fish on macOS with Homebrew**:
+
+1. Build a Pi-specific CA bundle containing the active ModelTap CA and the public roots:
+
+   ```fish
+   set modeltap_ca (brew --prefix)/etc/modeltap/certs/ca-cert.pem
+   set public_ca (brew --prefix)/etc/ca-certificates/cert.pem
+   set pi_ca_bundle $HOME/.config/modeltap/ca-bundle.pem
+
+   mkdir -p (dirname $pi_ca_bundle)
+   openssl x509 -in $modeltap_ca -out $pi_ca_bundle
+   openssl crl2pkcs7 -nocrl -certfile $public_ca 2>/dev/null |
+       openssl pkcs7 -print_certs 2>/dev/null |
+       awk 'BEGIN { skip = 0; in_cert = 0 }
+           /^subject=/ { skip = ($0 == "subject=CN=modeltap local CA"); next }
+           /^issuer=/ { next }
+           /^-----BEGIN CERTIFICATE-----/ { in_cert = 1 }
+           !skip && in_cert { print }
+           /^-----END CERTIFICATE-----/ { in_cert = 0 }' >> $pi_ca_bundle
+   chmod 0644 $pi_ca_bundle
+   ```
+
+2. Remove a global Fish universal setting if one was previously added:
+
+   ```fish
+   set -eU SSL_CERT_FILE
+   ```
+
+3. Create and persist a Pi-only wrapper function:
+
+   ```fish
+   function pi --description 'Run Pi with the ModelTap CA bundle'
+       set -l pi_ca_bundle "$HOME/.config/modeltap/ca-bundle.pem"
+
+       if not test -r "$pi_ca_bundle"
+           echo "Pi CA bundle is not readable: $pi_ca_bundle" >&2
+           return 1
+       end
+
+       set -lx SSL_CERT_FILE "$pi_ca_bundle"
+       command pi $argv
+   end
+
+   funcsave pi
+   ```
+
+4. Start Pi normally so Fish invokes the wrapper:
+
+   ```fish
+   pi
+   ```
+
+The function-local export disappears after Pi exits, so Git, curl, npm, and other commands retain their normal trust configuration. Keep `NODE_EXTRA_CA_CERTS` for clients such as Codex or oh-my-pi that already use it correctly.
+
+Commands that execute the binary directly, including `/opt/homebrew/bin/pi`, `env ... pi`, and `timeout ... pi`, bypass Fish functions. Configure those launchers to invoke Fish or set `SSL_CERT_FILE` explicitly. Rebuild the Pi-specific bundle after rotating the ModelTap CA or updating the public CA bundle.
 
 ## Contributing and architecture
 
