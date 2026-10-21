@@ -7,12 +7,22 @@ use modeltap::proxy::{
 use modeltap::telemetry::Telemetry;
 use modeltap::usage::{AutoStreamUsageParser, WebSocketUsageParser, auto_parse_json};
 use rust_decimal::Decimal;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 const MAX_ALLOWED_AVG_PROCESSING_MICROSECONDS: f64 = 100.0;
 const MAX_ALLOWED_P95_PROCESSING_MICROSECONDS: f64 = 500.0;
 const MAX_ALLOWED_MAX_PROCESSING_MICROSECONDS: f64 = 1000.0;
+
+// These tests measure wall-clock latency, so concurrent benchmark setup, sampling,
+// and telemetry shutdown must not compete with another benchmark's measurements.
+// Keep the guard alive until after the observer is dropped. Other test binaries
+// can keep using the test harness's normal parallelism.
+fn lock_benchmark() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    // A failed threshold must not prevent the remaining benchmarks from running.
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn create_test_observer(site: &str) -> UsageObserver {
     let pricing_config = PricingConfig {
@@ -86,6 +96,7 @@ fn assert_duration_thresholds(name: &str, mut durations: Vec<f64>) {
 
 #[test]
 fn openai_sse_chunk_processing_duration_meets_performance_limits() {
+    let _benchmark_guard = lock_benchmark();
     let observer = create_test_observer("openai");
     let chunks: [&[u8]; 4] = [
         b"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
@@ -128,6 +139,7 @@ fn openai_sse_chunk_processing_duration_meets_performance_limits() {
 
 #[test]
 fn anthropic_sse_chunk_processing_duration_meets_performance_limits() {
+    let _benchmark_guard = lock_benchmark();
     let observer = create_test_observer("anthropic");
     let chunks: [&[u8]; 6] = [
         b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-3-5-sonnet-20241022\",\"usage\":{\"input_tokens\":150,\"output_tokens\":1}}}\n\n",
@@ -172,6 +184,7 @@ fn anthropic_sse_chunk_processing_duration_meets_performance_limits() {
 
 #[test]
 fn direct_json_response_processing_duration_meets_performance_limits() {
+    let _benchmark_guard = lock_benchmark();
     let observer = create_test_observer("openai");
     let payloads: [(&str, &[u8]); 2] = [
         (
@@ -230,6 +243,7 @@ fn direct_json_response_processing_duration_meets_performance_limits() {
 
 #[test]
 fn websocket_frame_processing_duration_meets_performance_limits() {
+    let _benchmark_guard = lock_benchmark();
     let observer = create_test_observer("openai");
     let payload = br#"{"type":"response.completed","response":{"model":"gpt-4o","usage":{"input_tokens":100,"output_tokens":20,"input_tokens_details":{"cached_tokens":30}}}}"#;
 
